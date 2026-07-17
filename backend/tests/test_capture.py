@@ -43,15 +43,20 @@ def test_extract_window_filters_to_trigger_relative_range():
     for i in range(10):
         buffer.push(Frame(timestamp=base + i * 0.1, image=_tiny_frame()))
 
+    # Window edges (base+0.25, base+0.65) deliberately fall *between* frame
+    # samples (spaced 0.1 apart), not exactly on one -- landing exactly on a
+    # sample's timestamp makes the test's pass/fail depend on float rounding
+    # (observed flaky on CI, where time.monotonic()'s larger absolute value
+    # made epsilon-level rounding more likely to tip a boundary frame in/out).
     trigger_time = base + 0.6
     frames = extract_window(
-        buffer, trigger_time, pre_capture_delay_s=0.3, capture_duration_s=0.4, timeout_s=1.0
+        buffer, trigger_time, pre_capture_delay_s=0.35, capture_duration_s=0.4, timeout_s=1.0
     )
 
-    # window is [base+0.3, base+0.7] -> indices 3..7 inclusive (5 frames)
-    assert len(frames) == 5
+    # window is [base+0.25, base+0.65] -> indices 3..6 inclusive (4 frames)
+    assert len(frames) == 4
     assert frames[0].timestamp == pytest.approx(base + 0.3)
-    assert frames[-1].timestamp == pytest.approx(base + 0.7)
+    assert frames[-1].timestamp == pytest.approx(base + 0.6)
 
 
 def test_extract_window_times_out_if_buffer_never_fills():
