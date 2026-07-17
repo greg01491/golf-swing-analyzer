@@ -35,7 +35,9 @@ class CamerasConfig(BaseModel):
 
 
 class PoseConfig(BaseModel):
-    model: str
+    pose_model: str
+    mode: str
+    save_debug_video: bool
 
 
 class CalibrationConfig(BaseModel):

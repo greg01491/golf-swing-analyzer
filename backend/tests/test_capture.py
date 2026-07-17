@@ -88,7 +88,7 @@ def _tiny_config(tmp_path) -> Config:
                 CameraDeviceConfig(id=1, role="camera_2", width=8, height=6, fps=30),
             ],
         ),
-        pose=PoseConfig(model="mediapipe_pose"),
+        pose=PoseConfig(pose_model="Body_with_feet", mode="balanced", save_debug_video=True),
         calibration=CalibrationConfig(file="config/calibration.json"),
         metrics=MetricsConfig(reference_ranges={}),
         storage=StorageConfig(data_dir=str(tmp_path), db_file=str(tmp_path / "sessions.db")),
