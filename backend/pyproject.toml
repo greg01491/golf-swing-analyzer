@@ -18,6 +18,9 @@ dev = [
     "ruff>=0.4",
     "black>=24.0",
     "pytest>=8.0",
+    # golf_sim.pose.viewer's real dependency; kept out of base deps so the
+    # capture/audio services stay lean, but needed to run the test suite.
+    "matplotlib>=3.8",
 ]
 # 2D pose + camera calibration + 3D triangulation (Phase 3/4). Not needed until
 # then — kept as its own extra so Phase 0-2 setup doesn't pull in its ML stack.

@@ -32,6 +32,17 @@ def test_prepare_pose_project_is_idempotent(tmp_path):
     ]
 
 
+def test_prepare_pose_project_installs_base_config_when_pose2sim_available(tmp_path):
+    pytest.importorskip("Pose2Sim")
+    session = _fake_session(tmp_path)
+
+    project_dir = prepare_pose_project(session)
+
+    # see _install_base_config: Pose2Sim stages anchor directory search on
+    # this file's location, so it must exist in every project
+    assert (project_dir / "Config.toml").exists()
+
+
 def test_prepare_pose_project_raises_on_empty_session(tmp_path):
     empty = tmp_path / "empty-session"
     empty.mkdir()

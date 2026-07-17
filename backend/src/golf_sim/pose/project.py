@@ -55,7 +55,14 @@ def _install_base_config(project_dir: Path) -> None:
     target = project_dir / "Config.toml"
     if target.exists():
         return
-    import Pose2Sim
+    try:
+        import Pose2Sim
+    except ImportError:
+        # The Config.toml only matters once Pose2Sim stages actually run,
+        # which requires the pose extra installed anyway -- so a missing
+        # Pose2Sim just means "skip", not "fail". Keeps the adapter testable
+        # without the heavy ML stack.
+        return
 
     packaged_default = Path(Pose2Sim.__file__).parent / "Demo_SinglePerson" / "Config.toml"
     shutil.copy2(packaged_default, target)
