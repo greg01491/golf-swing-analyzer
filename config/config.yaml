@@ -1,0 +1,55 @@
+# Golf Swing Analyzer — runtime configuration
+# All values here are user-editable; nothing in this list should be hardcoded
+# elsewhere in the app (spec.md NFR4).
+
+audio_trigger:
+  # Mic device to listen on; null = system default input
+  device: null
+  # RMS/dB trigger threshold. TBD via calibration helper (Phase 2).
+  threshold_db: -20.0
+  # Seconds of footage to keep *before* the trigger in the saved clip.
+  pre_capture_delay_s: 1.0
+  # Fixed length of the saved clip, counted from (trigger - pre_capture_delay_s).
+  capture_duration_s: 3.0
+  # Ignore re-triggers for this many seconds after a capture starts.
+  trigger_cooldown_s: 5.0
+
+cameras:
+  # Rolling buffer must cover at least pre_capture_delay_s + this margin.
+  buffer_margin_s: 1.0
+  devices:
+    - id: 0
+      role: camera_1
+      width: 1280
+      height: 720
+      fps: 60
+    - id: 1
+      role: camera_2
+      width: 1280
+      height: 720
+      fps: 60
+
+pose:
+  # Model choice is an open design spike (spec.md OQ2 / plan.md Spike A).
+  model: mediapipe_pose
+
+calibration:
+  # Path to the stored two-camera calibration result (Phase 4).
+  file: config/calibration.json
+
+metrics:
+  # Per-metric reference ranges; edit freely. Units in degrees unless noted.
+  reference_ranges:
+    shoulder_turn_deg: { min: 80, max: 100 }
+    hip_turn_deg: { min: 40, max: 55 }
+    spine_tilt_deg: { min: 25, max: 40 }
+    x_factor_deg: { min: 30, max: 45 }
+    tempo_ratio: { min: 2.8, max: 3.2 }
+
+storage:
+  data_dir: data
+  db_file: data/sessions.db
+
+api:
+  host: 127.0.0.1
+  port: 8765

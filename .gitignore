@@ -1,0 +1,35 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+backend/.venv/
+.pytest_cache/
+.ruff_cache/
+*.log
+
+# --- Node / Electron / React ---
+node_modules/
+frontend/dist/
+frontend/dist-electron/
+frontend/build/
+frontend/.vite/
+npm-debug.log*
+
+# --- Data / sessions (local captures, not checked in) ---
+data/*
+!data/.gitkeep
+
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# --- Env / secrets ---
+.env
+.env.local
+
+# --- Claude Code local settings (machine-specific permissions) ---
+.claude/settings.local.json
