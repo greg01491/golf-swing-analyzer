@@ -89,7 +89,12 @@ def _tiny_config(tmp_path) -> Config:
             ],
         ),
         pose=PoseConfig(pose_model="Body_with_feet", mode="balanced", save_debug_video=True),
-        calibration=CalibrationConfig(file="config/calibration.json"),
+        calibration=CalibrationConfig(
+            dir=str(tmp_path / "calibration"),
+            max_age_days=60,
+            checkerboard_corners=[4, 7],
+            checkerboard_square_size_mm=60,
+        ),
         metrics=MetricsConfig(reference_ranges={}),
         storage=StorageConfig(data_dir=str(tmp_path), db_file=str(tmp_path / "sessions.db")),
         api=ApiConfig(host="127.0.0.1", port=8765),

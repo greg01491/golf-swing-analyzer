@@ -21,6 +21,10 @@ npm-debug.log*
 data/*
 !data/.gitkeep
 
+# --- Rig calibration (machine/rig-specific, not checked in) ---
+config/calibration/*
+!config/calibration/.gitkeep
+
 # --- OS / editor ---
 .DS_Store
 Thumbs.db
@@ -33,3 +37,4 @@ Thumbs.db
 
 # --- Claude Code local settings (machine-specific permissions) ---
 .claude/settings.local.json
+config/logs.txt

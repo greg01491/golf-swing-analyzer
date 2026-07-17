@@ -39,7 +39,26 @@ def prepare_pose_project(session_dir: Path) -> Path:
         if not target.exists() or target.stat().st_mtime < clip.stat().st_mtime:
             shutil.copy2(clip, target)
 
+    _install_base_config(project_dir)
     return project_dir
+
+
+def _install_base_config(project_dir: Path) -> None:
+    """Copy Pose2Sim's packaged default Config.toml into the project.
+
+    We drive Pose2Sim with config *dicts*, and dict overrides are merged over
+    this file. But several stages (personAssociation, triangulation) also use
+    the Config.toml's *location* to anchor their directory search -- without
+    one in the project dir they fall back to os.getcwd() and fail to find the
+    installed calibration folder.
+    """
+    target = project_dir / "Config.toml"
+    if target.exists():
+        return
+    import Pose2Sim
+
+    packaged_default = Path(Pose2Sim.__file__).parent / "Demo_SinglePerson" / "Config.toml"
+    shutil.copy2(packaged_default, target)
 
 
 def pose_output_dir(project_dir: Path) -> Path:

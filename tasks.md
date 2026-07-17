@@ -47,15 +47,16 @@
 - Note from demo footage: RTMPose detected a *second* person in the background — Pose2Sim's `personAssociation` stage (Phase 4) is what picks the subject; don't skip it even for a single-golfer setup
 
 ## Phase 4 — Camera Calibration & 3D Triangulation
-- [ ] Set up physical rig: down-the-line (behind golfer) + face-on (side), ~90° apart (spec.md FR11a)
-- [ ] Design calibration capture routine using Pose2Sim's checkerboard/charuco calibration (shown to both cameras)
-- [ ] Implement calibration computation (relative camera pose/intrinsics) via Pose2Sim
-- [ ] Store calibration result (reusable until camera moves)
-- [ ] Implement triangulation via Pose2Sim: paired 2D landmarks (per camera, per frame) → 3D landmark per frame
-- [ ] Check whether our own Phase 1/2 trigger-timestamp sync is sufficient, or whether Pose2Sim's sync stage (keypoint-correlation or clap/flash) is still needed
-- [ ] Build a simple 3D landmark playback/plot (even a basic viewer) to sanity-check output against real motion
-- [ ] Real-footage occlusion check (spec.md OQ4): confirm the down-the-line + face-on pair isn't losing key joints (e.g. trail arm) during the swing; revisit rig angle if it is
-- [ ] Add a "recalibration needed" check (e.g. flag if calibration file missing/stale)
+- [ ] Set up physical rig: down-the-line (behind golfer) + face-on (side), ~90° apart (spec.md FR11a) — **needs your hardware**
+- [x] Design calibration capture routine using Pose2Sim's checkerboard calibration — `pose/calibrate.py` `run_checkerboard_calibration()` + `python -m golf_sim.pose.cli calibrate`; expects checkerboard footage in `config/calibration/{intrinsics,extrinsics}/` per its docstring layout. **Running it against real footage needs the physical rig + a printed checkerboard**
+- [x] Implement calibration computation (relative camera pose/intrinsics) via Pose2Sim — validated using the demo's Qualisys calibration converted to Calib.toml
+- [x] Store calibration result (reusable until camera moves) — rig calibration lives in `config/calibration/` (gitignored, machine-specific), auto-installed into each session's project before triangulation
+- [x] Implement triangulation via Pose2Sim: personAssociation → triangulation → Butterworth filtering in `pose/reconstruct.py`; output TRC (+c3d) stored with session in `pose2sim/pose-3d/` (FR15). Validated end-to-end on demo footage: 100/100 frames triangulated, 14.5s for the 3D stages
+- [ ] Check whether our own Phase 1/2 trigger-timestamp sync is sufficient, or whether Pose2Sim's sync stage is still needed — **needs real dual-camera captures**; demo footage is pre-synced so this couldn't be exercised
+- [x] Build a simple 3D landmark playback/plot to sanity-check output against real motion — `python -m golf_sim.pose.viewer <trc>` renders a sampled-frame skeleton grid; verified anatomically-coherent motion on demo output (known cosmetic issue: z-axis renders inverted)
+- [ ] Real-footage occlusion check (spec.md OQ4): confirm the down-the-line + face-on pair isn't losing key joints (e.g. trail arm) during the swing; revisit rig angle if it is — **needs real swing footage from your rig**
+- [x] Add a "recalibration needed" check — `calibration_status()`: missing or older than `calibration.max_age_days` (config.yaml) → flagged; `python -m golf_sim.pose.cli status`
+- Integration gotcha worth remembering: Pose2Sim stages anchor their directory search on the *location of a Config.toml* (falling back to cwd), even when driven by a config dict — so `prepare_pose_project` installs a copy of the packaged default Config.toml into every session project. Removing it breaks personAssociation/triangulation in ways that look like a missing-calibration error.
 
 ## Phase 5 — Swing Metrics Engine
 - [ ] Finalize metric list (e.g. shoulder turn angle, hip turn angle, spine tilt, X-factor, tempo ratio, weight transfer proxy)

@@ -47,8 +47,18 @@ pose:
   save_debug_video: true
 
 calibration:
-  # Path to the stored two-camera calibration result (Phase 4).
-  file: config/calibration.json
+  # Directory holding the rig's calibration result (Calib*.toml, Pose2Sim
+  # format) plus the source checkerboard footage it was computed from. The
+  # rig is calibrated once and reused across sessions; recalibrate whenever
+  # a camera moves (spec.md assumption).
+  dir: config/calibration
+  # Flag "recalibration recommended" if the calibration file is older than
+  # this many days (cameras drift/get bumped over time).
+  max_age_days: 60
+  # Checkerboard used for calibration: inner-corner count [rows, cols] and
+  # square size in mm. Defaults match Pose2Sim's demo board.
+  checkerboard_corners: [4, 7]
+  checkerboard_square_size_mm: 60
 
 metrics:
   # Per-metric reference ranges; edit freely. Units in degrees unless noted.

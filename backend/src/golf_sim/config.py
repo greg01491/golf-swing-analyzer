@@ -41,7 +41,10 @@ class PoseConfig(BaseModel):
 
 
 class CalibrationConfig(BaseModel):
-    file: str
+    dir: str
+    max_age_days: int
+    checkerboard_corners: list[int]
+    checkerboard_square_size_mm: float
 
 
 class ReferenceRange(BaseModel):
