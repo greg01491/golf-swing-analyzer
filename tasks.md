@@ -4,7 +4,7 @@
 **Status:** Draft v1 — check items off as completed
 
 ## Phase 0 — Project & Repo Setup
-- [ ] Create GitHub repo (`golf-swing-analyzer`), default branch, `.gitignore` (Python + Node)
+- [x] Create GitHub repo (`golf-swing-analyzer`), default branch, `.gitignore` (Python + Node)
 - [x] Create folder structure: `backend/`, `frontend/`, `docs/`, `config/`, `data/`
 - [x] Set up Python environment + dependency manager (venv or poetry)
 - [x] Set up Electron/React app scaffold in `frontend/`
