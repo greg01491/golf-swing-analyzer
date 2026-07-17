@@ -13,6 +13,7 @@ import json
 from pathlib import Path
 
 from golf_sim.analysis.metrics import compute_metrics
+from golf_sim.analysis.tips import generate_tips, tips_to_dicts
 from golf_sim.config import REPO_ROOT, load_config
 from golf_sim.trc import read_trc
 
@@ -34,9 +35,10 @@ def analyze_session(session_dir: Path, config) -> Path:
     trc_path = pick_trc(session_dir)
     seq = read_trc(trc_path)
     report = compute_metrics(seq, config.metrics)
+    tips = generate_tips(report)
 
     out_path = session_dir / "metrics.json"
-    payload = {"source_trc": trc_path.name, **report.to_dict()}
+    payload = {"source_trc": trc_path.name, **report.to_dict(), "tips": tips_to_dicts(tips)}
     out_path.write_text(json.dumps(payload, indent=2))
     return out_path
 
@@ -71,6 +73,13 @@ def main() -> None:
             else ("  OK" if metric["in_range"] else "  ** OUT OF RANGE **")
         )
         print(f"  {metric['name']}: {metric['value']} {metric['unit']}{flag}")
+
+    if report["tips"]:
+        print("\ntips:")
+        for i, tip in enumerate(report["tips"], 1):
+            print(f"  {i}. [{tip['metric']} {tip['direction']}] {tip['text']}")
+    else:
+        print("\nno tips -- everything in range. Nice swing.")
 
 
 if __name__ == "__main__":

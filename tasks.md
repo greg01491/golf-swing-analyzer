@@ -69,10 +69,10 @@
 - Real-swing validation of phase-detection heuristics + reference-range defaults still needs actual swing captures from your rig (same dependency as the Phase 4 hardware items)
 
 ## Phase 6 — Tips Engine
-- [ ] Define rule set mapping flagged metrics → candidate tip text
-- [ ] Implement tip selection/prioritization (e.g. top 3 most significant deviations)
-- [ ] Output ranked tips list per session
-- [ ] Review tip wording for clarity/usefulness (manual pass)
+- [x] Define rule set mapping flagged metrics → candidate tip text — `analysis/tips.py`: per-metric too-low/too-high wording; low hip-sway deliberately has no tip (it isn't a fault)
+- [x] Implement tip selection/prioritization — severity = deviation normalized by reference-range width, ranked, top-3 (configurable via `max_tips` arg)
+- [x] Output ranked tips list per session — included in `metrics.json` (`tips` array) and the analysis CLI printout
+- [ ] Review tip wording for clarity/usefulness (manual pass) — **your call, Greg**: read the tip texts in `backend/src/golf_sim/analysis/tips.py` and edit any wording that doesn't sound like advice you'd actually want
 
 ## Phase 7 — Review UI
 - [ ] Session browser screen (list past sessions, thumbnails/timestamps)
