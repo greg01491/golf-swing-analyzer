@@ -19,6 +19,11 @@ dev = [
     "black>=24.0",
     "pytest>=8.0",
 ]
+# 2D pose + camera calibration + 3D triangulation (Phase 3/4). Not needed until
+# then — kept as its own extra so Phase 0-2 setup doesn't pull in its ML stack.
+pose = [
+    "pose2sim>=0.10",
+]
 
 [build-system]
 requires = ["setuptools>=68"]

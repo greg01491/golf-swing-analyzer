@@ -36,19 +36,23 @@
 - [ ] Test in real conditions: impact sound vs. talking/ambient noise — tune default threshold/cooldown
 
 ## Phase 3 — 2D Pose Estimation per Camera
-- [ ] Spike A: shortlist 1-2 open-source pose models; compare speed/accuracy on sample footage; pick one
-- [ ] Integrate chosen pose model into a per-camera processing step
+- [x] ~~Spike A: shortlist 1-2 open-source pose models~~ — resolved: adopt Pose2Sim (BSD-3-Clause), RTMPose default backend
+- [ ] Add `pose2sim` as an optional dependency (`backend/pyproject.toml` `pose` extra); install when starting this phase
+- [ ] Integrate Pose2Sim's 2D pose stage into a per-camera processing step in `backend/pose/`
 - [ ] Run pose estimation over a saved session's two clips → landmark sequences (per-frame, per-camera)
 - [ ] Store landmark sequences alongside session (e.g. `landmarks_cam1.json`, `landmarks_cam2.json`)
 - [ ] Build a debug overlay video (landmarks drawn on original frames) for visual QA
 - [ ] Benchmark processing time on target laptop GPU; confirm within NFR3 target
 
 ## Phase 4 — Camera Calibration & 3D Triangulation
-- [ ] Design calibration capture routine (e.g. checkerboard shown to both cameras)
-- [ ] Implement calibration computation (relative camera pose/intrinsics)
+- [ ] Set up physical rig: down-the-line (behind golfer) + face-on (side), ~90° apart (spec.md FR11a)
+- [ ] Design calibration capture routine using Pose2Sim's checkerboard/charuco calibration (shown to both cameras)
+- [ ] Implement calibration computation (relative camera pose/intrinsics) via Pose2Sim
 - [ ] Store calibration result (reusable until camera moves)
-- [ ] Implement triangulation: paired 2D landmarks (per camera, per frame) → 3D landmark per frame
+- [ ] Implement triangulation via Pose2Sim: paired 2D landmarks (per camera, per frame) → 3D landmark per frame
+- [ ] Check whether our own Phase 1/2 trigger-timestamp sync is sufficient, or whether Pose2Sim's sync stage (keypoint-correlation or clap/flash) is still needed
 - [ ] Build a simple 3D landmark playback/plot (even a basic viewer) to sanity-check output against real motion
+- [ ] Real-footage occlusion check (spec.md OQ4): confirm the down-the-line + face-on pair isn't losing key joints (e.g. trail arm) during the swing; revisit rig angle if it is
 - [ ] Add a "recalibration needed" check (e.g. flag if calibration file missing/stale)
 
 ## Phase 5 — Swing Metrics Engine

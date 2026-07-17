@@ -52,12 +52,14 @@ Written in EARS-style ("When/If <trigger>, the system shall <response>") where u
 - FR9: The system shall capture synchronized video from two USB cameras simultaneously.
 - FR10: The system shall allow the user to select which two connected USB cameras to use and configure resolution/frame rate per camera.
 - FR11: The system shall save each captured swing as a discrete "session" containing both camera clips plus metadata (timestamp, settings used, camera IDs).
+- FR11a: The reference camera rig is **down-the-line** (behind the golfer, looking along the target line) + **face-on** (to the side, perpendicular to the target line), roughly a 90° pair. This gives real triangulated depth (not a single-view estimate) at the cost of some self-occlusion risk during the swing, which Phase 4 testing must validate against actual footage.
 
 ### 4.3 Pose Estimation & 3D Reconstruction
 - FR12: The system shall run 2D pose estimation (body landmarks) independently on each camera's captured clip.
 - FR13: The system shall triangulate the two cameras' 2D landmark sequences into a single 3D skeleton/landmark sequence over the capture window, using a one-time camera calibration (relative position/orientation of the two cameras).
 - FR14: The system shall provide a guided calibration workflow so the user can calibrate the two-camera rig (e.g. checkerboard or known-object calibration).
 - FR15: The system shall store the resulting 3D landmark sequence per session for reuse (re-analysis without re-running pose estimation).
+- FR12-15 are implemented on top of [Pose2Sim](https://github.com/perfanalytics/pose2sim) (BSD-3-Clause) rather than hand-rolled: it supplies the 2D pose backend (RTMPose default, MediaPipe/OpenPose as alternates), checkerboard/charuco calibration, and DLT triangulation for exactly the 2-camera case. See plan.md Phase 3/4 and OQ2 below.
 
 ### 4.4 Swing Analysis
 - FR16: From the 3D landmark sequence, the system shall compute a defined set of swing metrics (e.g. shoulder turn angle, hip turn angle, spine tilt, X-factor (shoulder-hip separation), swing tempo/ratio, weight transfer indicators — exact metric list to be finalized in design).
@@ -83,7 +85,7 @@ Written in EARS-style ("When/If <trigger>, the system shall <response>") where u
 
 - **Audio Trigger Service** (Python) — mic input stream → level detection → trigger event.
 - **Capture Service** (Python) — manages dual USB camera rolling buffers + synchronized recording, writes session video files.
-- **Pose Pipeline** (Python, GPU-accelerated, open-source model e.g. MediaPipe Pose or similar) — 2D landmarks per camera → 3D triangulation using calibration data.
+- **Pose Pipeline** (Python, GPU-accelerated) — built on [Pose2Sim](https://github.com/perfanalytics/pose2sim) (BSD-3-Clause): 2D landmarks per camera (RTMPose default) → checkerboard/charuco calibration → DLT triangulation into a 3D landmark sequence. Used as a library dependency called from `backend/pose/`, not forked/vendored — our own capture, storage, analysis, and UI layers stay independent per NFR6.
 - **Analysis Engine** (Python) — metrics computation + rule-based tip generation.
 - **Session Store** — local storage (filesystem + a lightweight local DB, e.g. SQLite) for sessions, video, pose data, metrics.
 - **Frontend** (React/Electron) — arm/disarm control, live config, session browser, playback + skeleton overlay, metrics/tips display.
@@ -103,7 +105,8 @@ Written in EARS-style ("When/If <trigger>, the system shall <response>") where u
 ## 8. Open Questions / Assumptions
 
 - OQ1: Exact capture duration default and pre-capture buffer size — needs real-world testing with actual impact sounds.
-- OQ2: Which open-source pose model to standardize on (e.g. MediaPipe Pose vs. a GPU-heavier alternative) — to be confirmed in `plan.md` / design spike.
-- OQ3: Camera calibration UX — how much do we ask the user to do manually vs. automate.
+- ~~OQ2: Which open-source pose model to standardize on~~ — **Resolved:** adopt Pose2Sim (BSD-3-Clause), RTMPose as its default 2D backend. See §4.3 and §6.
+- OQ3: Camera calibration UX — how much do we ask the user to do manually vs. automate. Pose2Sim's checkerboard/charuco calibration is the starting point; Phase 4 decides how much of it to wrap in a guided UI flow vs. exposing directly.
+- OQ4: Down-the-line + face-on (~90°) is an "acceptable" but not Pose2Sim's "optimal" (45°) camera-angle configuration per its own docs — the tradeoff is a real self-occlusion risk (e.g. trail arm hidden behind the torso from one view mid-swing). Phase 4 exit criteria must include a real-footage check that occlusion isn't degrading key joints before locking in the rig as final.
 - Assumption: Both cameras are fixed in position once calibrated (recalibration needed if a camera moves).
 - Assumption: v1 targets a single golfer, single-camera-rig setup (not multi-station).
