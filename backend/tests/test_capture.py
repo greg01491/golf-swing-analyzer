@@ -122,3 +122,23 @@ def test_manual_capture_produces_two_synced_clips(tmp_path):
     expected = config.audio_trigger.capture_duration_s * 30
     assert cam1_frames == cam2_frames  # both cameras produced the same window length
     assert expected * 0.7 <= cam1_frames <= expected * 1.3
+
+
+def test_capture_now_accepts_explicit_trigger_time(tmp_path):
+    # the audio trigger service passes the exact moment it detected the
+    # impact, rather than letting capture_now() stamp its own "now"
+    config = _tiny_config(tmp_path)
+    sources = {
+        dev.role: SyntheticCameraSource(fps=dev.fps, width=dev.width, height=dev.height)
+        for dev in config.cameras.devices
+    }
+    service = CaptureService(config, sources=sources)
+    service.start()
+    try:
+        time.sleep(config.audio_trigger.pre_capture_delay_s + config.cameras.buffer_margin_s)
+        explicit_trigger_time = time.monotonic() - 0.05
+        session_dir = service.capture_now(trigger_time=explicit_trigger_time)
+    finally:
+        service.stop()
+
+    assert (session_dir / "camera_1.mp4").exists()

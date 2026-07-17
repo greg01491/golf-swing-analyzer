@@ -24,16 +24,17 @@
 - [x] Write test: manual trigger produces two correctly-windowed clips
 
 ## Phase 2 — Audio Trigger Service
-- [ ] Implement mic input stream reader
-- [ ] Implement level detection (RMS/dB) over a rolling window
-- [ ] Add configurable trigger threshold
-- [ ] Add configurable pre-capture delay (default 1.0s) and capture duration
-- [ ] Add configurable trigger cooldown period (debounce)
-- [ ] Wire trigger event → Phase 1 "extract window" + save session
-- [ ] Build simple calibration helper (record ambient + sample impact sounds, suggest threshold)
-- [ ] Add manual arm/disarm control
-- [ ] Add manual re-trigger fallback (in case auto-detect misses)
-- [ ] Test in real conditions: impact sound vs. talking/ambient noise — tune default threshold/cooldown
+- [x] Implement mic input stream reader — real (sounddevice) + synthetic sources, mirroring the capture module's pattern
+- [x] Implement level detection (RMS/dB) over a rolling window
+- [x] Add configurable trigger threshold
+- [x] Add configurable pre-capture delay (default 1.0s) and capture duration — reused from Phase 1 config; `capture_now()` now accepts an explicit `trigger_time` so the audio-detected instant (not a fresh timestamp) anchors the window
+- [x] Add configurable trigger cooldown period (debounce)
+- [x] Wire trigger event → Phase 1 "extract window" + save session
+- [x] Build simple calibration helper (record ambient + sample impact sounds, suggest threshold) — `golf_sim.audio.calibration`
+- [x] Add manual arm/disarm control — `golf_sim.audio.cli listen` (a/d commands)
+- [x] Add manual re-trigger fallback (in case auto-detect misses) — `listen`'s `t` command, bypasses threshold/cooldown but still resets the cooldown window
+- [ ] Test in real conditions: impact sound vs. talking/ambient noise — tune default threshold/cooldown — **still needs the real golf-sim room + an actual club/impact sound**; no physical rig available in this dev environment
+- Found while testing on real hardware: the system-default mic input (`device: null`) can fail outright (PortAudio "no driver installed" over MME) even when the hardware itself is fine — a specific WASAPI device index worked where the default didn't. Added `golf_sim.audio.cli devices` to list candidates; config.yaml's `device` comment now points users at it instead of trusting the OS default blindly.
 
 ## Phase 3 — 2D Pose Estimation per Camera
 - [x] ~~Spike A: shortlist 1-2 open-source pose models~~ — resolved: adopt Pose2Sim (BSD-3-Clause), RTMPose default backend

@@ -3,7 +3,12 @@
 # elsewhere in the app (spec.md NFR4).
 
 audio_trigger:
-  # Mic device to listen on; null = system default input
+  # Mic device index to listen on. null = system default input, but that can
+  # fail outright on some machines (seen: MME default erroring with "no
+  # driver installed" even though the hardware itself worked fine via a
+  # specific device index). Run `python -m golf_sim.audio.cli devices` to
+  # list candidates and set an explicit index -- WASAPI-backed entries are
+  # the most reliable bet on Windows.
   device: null
   # RMS/dB trigger threshold. TBD via calibration helper (Phase 2).
   threshold_db: -20.0

@@ -50,8 +50,13 @@ class CaptureService:
         for stream in self.streams.values():
             stream.stop()
 
-    def capture_now(self) -> Path:
-        trigger_time = time.monotonic()
+    def capture_now(self, trigger_time: float | None = None) -> Path:
+        """trigger_time defaults to now (manual/dev capture); the audio
+        trigger service passes the exact moment it detected the impact so
+        the extracted window is anchored to that instant, not to whenever
+        this method happens to run."""
+        if trigger_time is None:
+            trigger_time = time.monotonic()
         pre = self.config.audio_trigger.pre_capture_delay_s
         duration = self.config.audio_trigger.capture_duration_s
 
