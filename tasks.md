@@ -14,14 +14,14 @@
 - [x] Write `CONTRIBUTING.md`/constitution notes: module boundaries, coding conventions
 
 ## Phase 1 — Dual-Camera Capture Pipeline
-- [ ] Enumerate connected USB cameras; build a simple camera-selection config
-- [ ] Implement per-camera capture stream (resolution/FPS configurable)
-- [ ] Implement rolling buffer per camera (size = pre-capture delay + margin, configurable)
-- [ ] Implement "extract window" function: given trigger time, pre-capture delay, duration → produce clip from buffer
-- [ ] Implement session folder writer (video files + metadata.json: timestamp, settings, camera IDs)
-- [ ] Add manual "capture now" trigger (dev/test button or CLI command)
-- [ ] Verify two-camera timestamp sync approach (e.g. shared clock / sync test using a clap or flash)
-- [ ] Write test: manual trigger produces two correctly-windowed clips
+- [x] Enumerate connected USB cameras; build a simple camera-selection config
+- [x] Implement per-camera capture stream (resolution/FPS configurable)
+- [x] Implement rolling buffer per camera (size = capture duration + margin, configurable — see spec.md FR6 correction)
+- [x] Implement "extract window" function: given trigger time, pre-capture delay, duration → produce clip from buffer
+- [x] Implement session folder writer (video files + metadata.json: timestamp, settings, camera IDs)
+- [x] Add manual "capture now" trigger (dev/test button or CLI command) — `python -m golf_sim.capture.cli [--synthetic]`
+- [x] Verify two-camera timestamp sync approach (e.g. shared clock / sync test using a clap or flash) — shared time.monotonic() clock implemented + validated with synthetic sources; `golf_sim.capture.sync_check` tool built for a real-hardware clap/flash test (**still needs running against actual USB cameras** — no physical rig available in this dev environment)
+- [x] Write test: manual trigger produces two correctly-windowed clips
 
 ## Phase 2 — Audio Trigger Service
 - [ ] Implement mic input stream reader

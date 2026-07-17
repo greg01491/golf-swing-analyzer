@@ -15,7 +15,10 @@ audio_trigger:
   trigger_cooldown_s: 5.0
 
 cameras:
-  # Rolling buffer must cover at least pre_capture_delay_s + this margin.
+  # Rolling buffer must cover at least capture_duration_s + this margin (not
+  # just pre_capture_delay_s): it keeps accumulating post-trigger frames after
+  # a trigger fires, so it must retain the whole window until extraction
+  # finishes, not just the pre-trigger portion.
   buffer_margin_s: 1.0
   devices:
     - id: 0
