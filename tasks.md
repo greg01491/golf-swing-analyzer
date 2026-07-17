@@ -75,15 +75,18 @@
 - [ ] Review tip wording for clarity/usefulness (manual pass) — **your call, Greg**: read the tip texts in `backend/src/golf_sim/analysis/tips.py` and edit any wording that doesn't sound like advice you'd actually want
 
 ## Phase 7 — Review UI
-- [ ] Session browser screen (list past sessions, thumbnails/timestamps)
-- [ ] Playback screen: video player synced with 3D skeleton animation
-- [ ] Metrics panel (numbers + flagged/OK indicators)
-- [ ] Tips panel (ranked list)
-- [ ] Settings screen: trigger threshold, pre-capture delay, capture duration, cooldown, camera settings
-- [ ] Settings screen: metric reference ranges (editable)
-- [ ] Arm/disarm control + live mic level indicator (so user can see it's listening)
-- [ ] Wire frontend to backend via local API/WebSocket
-- [ ] End-to-end manual test: swing → capture → processing → browse → playback with tips
+- [x] Session browser screen (list past sessions, timestamps + 3D/metrics badges)
+- [x] Playback screen: video player (camera tabs) + canvas 3D skeleton animation synced to video time, with azimuth rotation slider
+- [x] Metrics panel (numbers + flagged/OK indicators + reference ranges)
+- [x] Tips panel (ranked list)
+- [x] Settings screen: trigger threshold, pre-capture delay, capture duration, cooldown, camera settings
+- [x] Settings screen: metric reference ranges (editable)
+- [x] Arm/disarm control + live mic level meter + manual capture button in the header
+- [x] Wire frontend to backend via local API — FastAPI (`python -m golf_sim.api.server`, port from config.yaml) + Vite dev proxy; endpoints for sessions/video/landmarks/process/config/capture-control. Config saves go through ruamel.yaml round-trip so config.yaml's comments survive UI edits (plain yaml.safe_dump destroyed them — caught during browser verification)
+- [x] "Process swing" button runs pose → 3D → metrics in a background thread with status polling, for sessions captured before processing
+- [x] Browser-verified against the demo session: session list, camera tabs, metrics table with flags, ranked tips, settings round-trip (value saved to disk, comments intact), and graceful missing-camera error surfaced in UI
+- [ ] End-to-end manual test: swing → capture → processing → browse → playback with tips — **needs your rig**; every stage is verified individually but nobody has hit a real ball yet
+- Dev workflow: `python -m golf_sim.api.server` in one terminal, `npm run dev` (browser) or `npm run electron:dev` (desktop shell) in another
 
 ## Phase 8 — Hardening & Packaging
 - [ ] Run extended real-world test sessions (multiple rooms/noise levels); log false triggers/misses
