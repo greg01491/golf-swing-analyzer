@@ -18,14 +18,14 @@ def test_read_trc_parses_markers_times_and_coords(tmp_path):
     trc = tmp_path / "test.trc"
     trc.write_text(_TRC_CONTENT)
 
-    marker_names, times, coords = read_trc(trc)
+    seq = read_trc(trc)
 
-    assert marker_names == ["Hip", "Neck"]
-    assert coords.shape == (3, 2, 3)
-    assert times[1] == 0.017
-    assert coords[0, 0].tolist() == [0.1, 0.2, 0.9]
-    assert coords[2, 1].tolist() == [0.12, 0.22, 1.52]
-    assert not np.isnan(coords).any()
+    assert seq.marker_names == ["Hip", "Neck"]
+    assert seq.coords.shape == (3, 2, 3)
+    assert seq.times[1] == 0.017
+    assert seq.marker("Hip")[0].tolist() == [0.1, 0.2, 0.9]
+    assert seq.marker("Neck")[2].tolist() == [0.12, 0.22, 1.52]
+    assert not np.isnan(seq.coords).any()
 
 
 def test_plot_frames_writes_png(tmp_path):

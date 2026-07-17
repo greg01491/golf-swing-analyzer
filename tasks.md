@@ -59,12 +59,14 @@
 - Integration gotcha worth remembering: Pose2Sim stages anchor their directory search on the *location of a Config.toml* (falling back to cwd), even when driven by a config dict — so `prepare_pose_project` installs a copy of the packaged default Config.toml into every session project. Removing it breaks personAssociation/triangulation in ways that look like a missing-calibration error.
 
 ## Phase 5 — Swing Metrics Engine
-- [ ] Finalize metric list (e.g. shoulder turn angle, hip turn angle, spine tilt, X-factor, tempo ratio, weight transfer proxy)
-- [ ] Implement each metric's computation from the 3D landmark sequence
-- [ ] Add configurable reference ranges per metric (defaults + user-editable)
-- [ ] Implement "flag out-of-range" logic
-- [ ] Output a structured metrics report (JSON) per session
-- [ ] Write tests against a few known/sample swings (sanity values)
+- [x] Finalize metric list: shoulder_turn_deg, hip_turn_deg, x_factor_deg, spine_tilt_deg (at address), tempo_ratio, hip_sway_top_pct + hip_sway_impact_pct (weight-transfer proxy, % of stance width). All angles reported as magnitudes → handedness-neutral
+- [x] Implement each metric's computation from the 3D landmark sequence — `analysis/metrics.py`, built on a body-anchored reference frame (`analysis/frame_of_reference.py`) that infers the vertical axis from ankle→head separation, so nothing assumes which calibrated world axis is up or where the target line is
+- [x] Swing phase detection (address/top/impact) from the hand-midpoint trajectory — `analysis/phases.py`; relative-quantity heuristics only (fractions of peak speed, per-clip extrema) so it's invariant to units/frame rate/position
+- [x] Add configurable reference ranges per metric — config.yaml `metrics.reference_ranges`; metrics without a range are computed but never flagged
+- [x] Implement "flag out-of-range" logic
+- [x] Output a structured metrics report (JSON) per session — `python -m golf_sim.analysis.cli <session>|--latest` → `<session>/metrics.json`
+- [x] Write tests against known swings — synthetic swing generator with controlled ground truth (90° shoulder turn, 45° hip turn, 3:1 tempo, known spine tilt); computed metrics match within tolerance. Chain also smoke-tested on the demo session's real 3D data: runs end-to-end, and correctly flags everything out-of-range since the demo subject isn't swinging a golf club
+- Real-swing validation of phase-detection heuristics + reference-range defaults still needs actual swing captures from your rig (same dependency as the Phase 4 hardware items)
 
 ## Phase 6 — Tips Engine
 - [ ] Define rule set mapping flagged metrics → candidate tip text

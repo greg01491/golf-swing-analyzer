@@ -62,12 +62,16 @@ calibration:
 
 metrics:
   # Per-metric reference ranges; edit freely. Units in degrees unless noted.
+  # Metrics without a range here are still computed, just never flagged.
   reference_ranges:
     shoulder_turn_deg: { min: 80, max: 100 }
     hip_turn_deg: { min: 40, max: 55 }
     spine_tilt_deg: { min: 25, max: 40 }
     x_factor_deg: { min: 30, max: 45 }
     tempo_ratio: { min: 2.8, max: 3.2 }
+    # Lateral hip sway as % of stance width, relative to address.
+    hip_sway_top_pct: { min: 0, max: 30 }
+    hip_sway_impact_pct: { min: 0, max: 40 }
 
 storage:
   data_dir: data

@@ -12,6 +12,8 @@ from pathlib import Path
 
 import numpy as np
 
+from golf_sim.trc import read_trc  # noqa: F401  (re-exported; tests + callers import from here)
+
 # Bone connections by Pose2Sim/HALPE marker name; pairs missing from a given
 # file are skipped, so this works across pose models.
 _SKELETON_EDGES = [
@@ -36,22 +38,6 @@ _SKELETON_EDGES = [
 ]
 
 
-def read_trc(path: Path) -> tuple[list[str], np.ndarray, np.ndarray]:
-    """Returns (marker_names, times [n_frames], coords [n_frames, n_markers, 3])."""
-    lines = Path(path).read_text().splitlines()
-    # line 3 (0-indexed): tab-separated marker names starting at column 2
-    marker_names = [name for name in lines[3].split("\t")[2:] if name.strip()]
-    rows = []
-    for line in lines[5:]:
-        if not line.strip():
-            continue
-        rows.append([float(v) if v.strip() else np.nan for v in line.split("\t")])
-    data = np.array(rows)
-    times = data[:, 1]
-    coords = data[:, 2 : 2 + 3 * len(marker_names)].reshape(len(data), len(marker_names), 3)
-    return marker_names, times, coords
-
-
 def plot_frames(
     trc_path: Path, out_path: Path, num_frames: int = 6, elev: float = 20, azim: float = -70
 ) -> Path:
@@ -61,7 +47,8 @@ def plot_frames(
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    marker_names, times, coords = read_trc(trc_path)
+    seq = read_trc(trc_path)
+    marker_names, times, coords = seq.marker_names, seq.times, seq.coords
     name_index = {name: i for i, name in enumerate(marker_names)}
     edges = [
         (name_index[a], name_index[b])
