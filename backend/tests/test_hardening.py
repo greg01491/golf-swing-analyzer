@@ -75,9 +75,10 @@ def test_corrupt_session_metadata_does_not_break_listing(tmp_path):
 
     listing = list_sessions(tmp_path)
 
+    # corrupt session still listed, but sorts last (no readable timestamp)
     assert [s["id"] for s in listing] == [
-        "20260102T000000Z-bad00001",
         "20260101T000000Z-good0001",
+        "20260102T000000Z-bad00001",
     ]
-    assert listing[0]["created_at"] is None
-    assert listing[1]["created_at"] == "2026-01-01T00:00:00+00:00"
+    assert listing[0]["created_at"] == "2026-01-01T00:00:00+00:00"
+    assert listing[1]["created_at"] is None

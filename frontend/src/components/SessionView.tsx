@@ -51,10 +51,16 @@ export default function SessionView({ sessionId }: { sessionId: string }) {
   if (!detail) return <div className="panel">loading…</div>
 
   const metrics = detail.metrics
+  const createdAt = detail.metadata?.created_at as string | undefined
+  const when = createdAt ? new Date(createdAt) : null
 
   return (
     <div className="session-view">
-      <h2>{sessionId}</h2>
+      <h2>
+        {when
+          ? `${when.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' })} at ${when.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`
+          : sessionId}
+      </h2>
 
       <div className="playback-row">
         <div className="panel">

@@ -37,8 +37,11 @@ class SessionWriter:
         pre_capture_delay_s: float,
         capture_duration_s: float,
     ) -> Path:
-        created_at = datetime.now(UTC)
-        session_id = f"{created_at.strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:8]}"
+        # Local time in the folder name (with date/time visually separated)
+        # so sessions are human-readable in the UI and file explorer; the
+        # metadata keeps a full ISO timestamp with offset as ground truth.
+        created_at = datetime.now(UTC).astimezone()
+        session_id = f"{created_at.strftime('%Y-%m-%d_%H-%M-%S')}_{uuid.uuid4().hex[:8]}"
         session_dir = self.sessions_dir / session_id
         session_dir.mkdir(parents=True)
 

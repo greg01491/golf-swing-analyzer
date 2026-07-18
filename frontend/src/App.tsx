@@ -49,20 +49,34 @@ export default function App() {
             <h3>sessions</h3>
             {sessions.length === 0 && <p className="muted">no swings captured yet</p>}
             <ul>
-              {sessions.map((s) => (
-                <li key={s.id}>
-                  <button
-                    className={s.id === selected ? 'active' : ''}
-                    onClick={() => setSelected(s.id)}
-                  >
-                    <span className="session-id">{s.id}</span>
-                    <span className="badges">
-                      {s.has_3d && <em>3D</em>}
-                      {s.has_metrics && <em>metrics</em>}
-                    </span>
-                  </button>
-                </li>
-              ))}
+              {sessions.map((s) => {
+                const dt = s.created_at ? new Date(s.created_at) : null
+                return (
+                  <li key={s.id}>
+                    <button
+                      className={s.id === selected ? 'active' : ''}
+                      onClick={() => setSelected(s.id)}
+                    >
+                      {dt ? (
+                        <span className="session-when">
+                          <span className="session-time">
+                            {dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                          </span>
+                          <span className="session-date">
+                            {dt.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' })}
+                          </span>
+                        </span>
+                      ) : (
+                        <span className="session-id">{s.id}</span>
+                      )}
+                      <span className="badges">
+                        {s.has_3d && <em>3D</em>}
+                        {s.has_metrics && <em>metrics</em>}
+                      </span>
+                    </button>
+                  </li>
+                )
+              })}
             </ul>
           </aside>
           <main>

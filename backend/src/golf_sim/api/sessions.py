@@ -4,6 +4,7 @@ API does against the session store's on-disk layout."""
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 from golf_sim.trc import read_trc
@@ -11,6 +12,19 @@ from golf_sim.trc import read_trc
 
 def sessions_root(data_dir: Path) -> Path:
     return Path(data_dir) / "sessions"
+
+
+def _sort_stamp(entry: dict) -> str:
+    """Newest-first sort key: normalized UTC timestamp when metadata has one
+    (session folder names changed format once, so name ordering alone would
+    interleave old and new sessions wrongly); corrupt/unknown sort last."""
+    created_at = entry.get("created_at")
+    if created_at:
+        try:
+            return datetime.fromisoformat(created_at).astimezone(UTC).isoformat()
+        except ValueError:
+            pass
+    return ""
 
 
 def list_sessions(data_dir: Path) -> list[dict]:
@@ -41,6 +55,7 @@ def list_sessions(data_dir: Path) -> list[dict]:
                 "has_metrics": (session_dir / "metrics.json").exists(),
             }
         )
+    out.sort(key=_sort_stamp, reverse=True)
     return out
 
 
