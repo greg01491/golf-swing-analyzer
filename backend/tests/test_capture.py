@@ -9,6 +9,7 @@ from golf_sim.capture.frame import Frame
 from golf_sim.capture.service import CaptureService
 from golf_sim.capture.source import SyntheticCameraSource
 from golf_sim.config import (
+    AnalysisConfig,
     ApiConfig,
     AudioTriggerConfig,
     CalibrationConfig,
@@ -97,6 +98,7 @@ def _tiny_config(tmp_path) -> Config:
             checkerboard_square_size_mm=60,
         ),
         metrics=MetricsConfig(reference_ranges={}),
+        analysis=AnalysisConfig(golfer_handedness="right"),
         processing=ProcessingConfig(auto_process=False),
         storage=StorageConfig(data_dir=str(tmp_path), db_file=str(tmp_path / "sessions.db")),
         api=ApiConfig(host="127.0.0.1", port=8765),

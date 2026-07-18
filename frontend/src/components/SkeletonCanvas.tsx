@@ -29,7 +29,12 @@ interface Props {
   time: number
   width?: number
   height?: number
+  /** ghost reference pose for the currently-selected P-position, keyed by
+   * marker name (see golf_sim.analysis.ideal_pose on the backend) */
+  idealFrame?: Record<string, [number, number, number]> | null
 }
+
+type Point = { x: number; y: number } | null
 
 /** Detect which axis is vertical: largest spread of the Head/Neck marker
  * relative to ankles across the clip (same trick as the backend). */
@@ -53,32 +58,58 @@ function findUpAxis(lm: Landmarks): { axis: number; sign: number } {
   return { axis: best, sign: bestVal >= 0 ? 1 : -1 }
 }
 
-export default function SkeletonCanvas({ landmarks, time, width = 420, height = 420 }: Props) {
+function projectXY(
+  xyz: readonly (number | null)[],
+  up: number,
+  sign: number,
+  horiz: number[],
+  azimuthRad: number,
+): Point {
+  if (xyz[0] === null || xyz[1] === null || xyz[2] === null) return null
+  const u = xyz[horiz[0]] as number
+  const v = xyz[horiz[1]] as number
+  const h = (xyz[up] as number) * sign
+  return { x: u * Math.cos(azimuthRad) + v * Math.sin(azimuthRad), y: h }
+}
+
+export default function SkeletonCanvas({
+  landmarks,
+  time,
+  width = 420,
+  height = 420,
+  idealFrame,
+}: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [azimuth, setAzimuth] = useState(30)
 
   const upInfo = useMemo(() => findUpAxis(landmarks), [landmarks])
 
-  // camera bounds span the whole clip so the skeleton doesn't rescale
-  // mid-swing; computed once per clip/angle, NOT per animation tick
+  // camera bounds span the whole clip (plus the ideal ghost, if shown) so
+  // nothing gets clipped or rescales mid-swing; recomputed only per
+  // clip/angle/ghost, not per animation tick
   const bounds = useMemo(() => {
     const { axis: up, sign } = upInfo
     const horiz = [0, 1, 2].filter((i) => i !== up)
     const a = (azimuth * Math.PI) / 180
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
+    let minX = Infinity,
+      maxX = -Infinity,
+      minY = Infinity,
+      maxY = -Infinity
+    const extend = (p: Point) => {
+      if (!p) return
+      minX = Math.min(minX, p.x)
+      maxX = Math.max(maxX, p.x)
+      minY = Math.min(minY, p.y)
+      maxY = Math.max(maxY, p.y)
+    }
     for (const f of landmarks.frames) {
-      for (const m of f) {
-        if (m[0] === null) continue
-        const u = m[horiz[0]] as number
-        const v = m[horiz[1]] as number
-        const h = (m[up] as number) * sign
-        const x = u * Math.cos(a) + v * Math.sin(a)
-        minX = Math.min(minX, x); maxX = Math.max(maxX, x)
-        minY = Math.min(minY, h); maxY = Math.max(maxY, h)
-      }
+      for (const m of f) extend(projectXY(m, up, sign, horiz, a))
+    }
+    if (idealFrame) {
+      for (const xyz of Object.values(idealFrame)) extend(projectXY(xyz, up, sign, horiz, a))
     }
     return { minX, maxX, minY, maxY }
-  }, [landmarks, azimuth, upInfo])
+  }, [landmarks, azimuth, upInfo, idealFrame])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -86,23 +117,16 @@ export default function SkeletonCanvas({ landmarks, time, width = 420, height = 
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
+    const { axis: up, sign } = upInfo
+    const horiz = [0, 1, 2].filter((i) => i !== up)
+    const a = (azimuth * Math.PI) / 180
+
     const frameIdx = Math.min(
       landmarks.frames.length - 1,
       Math.max(0, Math.round(time * landmarks.fps)),
     )
     const frame = landmarks.frames[frameIdx]
-    const { axis: up, sign } = upInfo
-    const horiz = [0, 1, 2].filter((i) => i !== up)
-
-    // orthographic projection with azimuth rotation about the vertical axis
-    const a = (azimuth * Math.PI) / 180
-    const pts: ({ x: number; y: number } | null)[] = frame.map((m) => {
-      if (m[0] === null || m[1] === null || m[2] === null) return null
-      const u = m[horiz[0]] as number
-      const v = m[horiz[1]] as number
-      const h = (m[up] as number) * sign
-      return { x: u * Math.cos(a) + v * Math.sin(a), y: h }
-    })
+    const pts = frame.map((m) => projectXY(m, up, sign, horiz, a))
 
     const { minX, maxX, minY, maxY } = bounds
     const scale = 0.85 * Math.min(width / (maxX - minX || 1), height / (maxY - minY || 1))
@@ -113,32 +137,57 @@ export default function SkeletonCanvas({ landmarks, time, width = 420, height = 
       y: height / 2 - (p.y - cy) * scale,
     })
 
+    const drawSkeleton = (
+      points: Point[],
+      indexOf: (name: string) => number,
+      color: string,
+      dotColor: string,
+      dashed: boolean,
+    ) => {
+      ctx.setLineDash(dashed ? [6, 4] : [])
+      ctx.strokeStyle = color
+      ctx.lineWidth = 3
+      for (const [na, nb] of EDGES) {
+        const ia = indexOf(na)
+        const ib = indexOf(nb)
+        if (ia < 0 || ib < 0) continue
+        const pa = points[ia]
+        const pb = points[ib]
+        if (!pa || !pb) continue
+        const sa = toScreen(pa)
+        const sb = toScreen(pb)
+        ctx.beginPath()
+        ctx.moveTo(sa.x, sa.y)
+        ctx.lineTo(sb.x, sb.y)
+        ctx.stroke()
+      }
+      ctx.setLineDash([])
+      ctx.fillStyle = dotColor
+      for (const p of points) {
+        if (!p) continue
+        const s = toScreen(p)
+        ctx.beginPath()
+        ctx.arc(s.x, s.y, 4, 0, 2 * Math.PI)
+        ctx.fill()
+      }
+    }
+
     ctx.clearRect(0, 0, width, height)
-    ctx.strokeStyle = '#4ade80'
-    ctx.lineWidth = 3
-    for (const [na, nb] of EDGES) {
-      const ia = landmarks.marker_names.indexOf(na)
-      const ib = landmarks.marker_names.indexOf(nb)
-      if (ia < 0 || ib < 0) continue
-      const pa = pts[ia]
-      const pb = pts[ib]
-      if (!pa || !pb) continue
-      const sa = toScreen(pa)
-      const sb = toScreen(pb)
-      ctx.beginPath()
-      ctx.moveTo(sa.x, sa.y)
-      ctx.lineTo(sb.x, sb.y)
-      ctx.stroke()
+
+    if (idealFrame) {
+      const idealNames = Object.keys(idealFrame)
+      const idealPts = idealNames.map((n) => projectXY(idealFrame[n], up, sign, horiz, a))
+      drawSkeleton(idealPts, (name) => idealNames.indexOf(name), '#fbbf24', '#fde68a', true)
     }
-    ctx.fillStyle = '#a7f3d0'
-    for (const p of pts) {
-      if (!p) continue
-      const s = toScreen(p)
-      ctx.beginPath()
-      ctx.arc(s.x, s.y, 4, 0, 2 * Math.PI)
-      ctx.fill()
-    }
-  }, [landmarks, time, azimuth, width, height, upInfo, bounds])
+
+    drawSkeleton(
+      pts,
+      (name) => landmarks.marker_names.indexOf(name),
+      '#4ade80',
+      '#a7f3d0',
+      false,
+    )
+  }, [landmarks, time, azimuth, width, height, upInfo, bounds, idealFrame])
 
   return (
     <div className="skeleton-canvas">
@@ -153,6 +202,12 @@ export default function SkeletonCanvas({ landmarks, time, width = 420, height = 
           onChange={(e) => setAzimuth(Number(e.target.value))}
         />
       </label>
+      {idealFrame && (
+        <div className="ghost-legend">
+          <span className="swatch actual" /> you &nbsp;
+          <span className="swatch ideal" /> reference
+        </div>
+      )}
     </div>
   )
 }

@@ -75,6 +75,16 @@
 - [x] Write tests against known swings — synthetic swing generator with controlled ground truth (90° shoulder turn, 45° hip turn, 3:1 tempo, known spine tilt); computed metrics match within tolerance. Chain also smoke-tested on the demo session's real 3D data: runs end-to-end, and correctly flags everything out-of-range since the demo subject isn't swinging a golf club
 - Real-swing validation of phase-detection heuristics + reference-range defaults still needs actual swing captures from your rig (same dependency as the Phase 4 hardware items)
 
+### Phase 5 addition — P-System swing positions (P1-P10) + reference overlay
+Not in the original spec; added per request (2026-07-19).
+- [x] Config: `analysis.golfer_handedness` (right/left) — body pose alone can't tell which arm is "lead", needed for P3/P5/P9 etc.
+- [x] Detect all 10 checkpoints of golf's standard P-System (Mac O'Grady's, P1 Address through P10 Finish — confirmed the canonical system has no "P0") — `analysis/p_positions.py`. Since club tracking is out of scope (spec.md NG2), checkpoints are approximated from body pose: "club shaft parallel to ground" (P2/P6/P8) via hands crossing the golfer's own hip height, "lead arm parallel to ground" (P3/P5/P9) via the lead shoulder-to-wrist angle crossing horizontal. P1/P4/P7 reuse existing address/top/impact detection; P10 is peak hand height after P9
+- [x] Ideal/reference "ghost" pose per checkpoint — `analysis/ideal_pose.py`: built from the golfer's OWN measured proportions (arm/shoulder/hip segment lengths at address) posed into target shoulder-turn/hip-turn/arm-elevation angles. Only rotation + lead-arm carriage are idealized; spine posture, stance, and legs are copied from the real frame unchanged. Target angles are fractions of the configured metric reference ranges (v1 approximation, not derived from biomechanical study — documented in code)
+- [x] Validated the rotation math against synthetic cameras/poses with known targets: P4 (top, frac=1.0) reproduces the configured reference-range midpoint exactly; P1 arms equal actual (no idealization at address); trail wrist pins to the lead wrist (shared grip)
+- [x] Wired into `metrics.json` (`p_positions` array, each with `ideal_frame`) — flows to the API automatically since `session_detail()` already serves the full parsed metrics.json
+- [x] Frontend: P1-P10 button strip (`PPositionPanel.tsx`) that seeks + freezes the video/skeleton at each checkpoint; `SkeletonCanvas` draws the real skeleton (green) and ideal ghost (amber, dashed) simultaneously with a toggle to show/hide the overlay. Verified live in-browser: correct video seek time per position (exact frame match), both skeletons render with distinct colors (pixel-level check), toggle cleanly removes the ghost
+- [ ] Real-swing validation of the P-position proxies and target-angle fractions — **needs actual swing captures from your rig**; only validated against synthetic data with known ground truth so far
+
 ## Phase 6 — Tips Engine
 - [x] Define rule set mapping flagged metrics → candidate tip text — `analysis/tips.py`: per-metric too-low/too-high wording; low hip-sway deliberately has no tip (it isn't a fault)
 - [x] Implement tip selection/prioritization — severity = deviation normalized by reference-range width, ranked, top-3 (configurable via `max_tips` arg)

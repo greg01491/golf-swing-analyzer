@@ -5,6 +5,7 @@ constants elsewhere."""
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from pydantic import BaseModel
@@ -59,6 +60,13 @@ class MetricsConfig(BaseModel):
     reference_ranges: dict[str, ReferenceRange]
 
 
+class AnalysisConfig(BaseModel):
+    # Which arm is "lead" (closer to the target) -- needed to interpret P-system
+    # checkpoints (P3/P5/P9 etc. are defined relative to the lead arm) since
+    # body-pose tracking alone can't infer this from the footage.
+    golfer_handedness: Literal["right", "left"] = "right"
+
+
 class ProcessingConfig(BaseModel):
     auto_process: bool
 
@@ -79,6 +87,7 @@ class Config(BaseModel):
     pose: PoseConfig
     calibration: CalibrationConfig
     metrics: MetricsConfig
+    analysis: AnalysisConfig
     processing: ProcessingConfig
     storage: StorageConfig
     api: ApiConfig

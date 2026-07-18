@@ -22,6 +22,14 @@ export interface TipEntry {
   text: string
 }
 
+export interface PPosition {
+  name: string
+  label: string
+  frame_index: number
+  time_s: number
+  ideal_frame: Record<string, [number, number, number]>
+}
+
 export interface SessionDetail {
   id: string
   metadata: Record<string, unknown>
@@ -30,6 +38,7 @@ export interface SessionDetail {
     phases?: { address_frame: number; top_frame: number; impact_frame: number }
     metrics: MetricEntry[]
     tips: TipEntry[]
+    p_positions?: PPosition[]
   } | null
 }
 

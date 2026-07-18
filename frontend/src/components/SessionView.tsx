@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
-import type { Landmarks, SessionDetail } from '../api'
+import type { Landmarks, PPosition, SessionDetail } from '../api'
+import PPositionPanel from './PPositionPanel'
 import SkeletonCanvas from './SkeletonCanvas'
 
 export default function SessionView({ sessionId }: { sessionId: string }) {
@@ -9,12 +10,15 @@ export default function SessionView({ sessionId }: { sessionId: string }) {
   const [camera, setCamera] = useState<string>('camera_1')
   const [time, setTime] = useState(0)
   const [processState, setProcessState] = useState<string>('idle')
+  const [selectedPosition, setSelectedPosition] = useState<PPosition | null>(null)
+  const [showIdeal, setShowIdeal] = useState(true)
   const videoRef = useRef<HTMLVideoElement>(null)
 
   useEffect(() => {
     setDetail(null)
     setLandmarks(null)
     setProcessState('idle')
+    setSelectedPosition(null)
     api.session(sessionId).then((d) => {
       setDetail(d)
       if (d.cameras.length && !d.cameras.includes(camera)) setCamera(d.cameras[0])
@@ -22,6 +26,14 @@ export default function SessionView({ sessionId }: { sessionId: string }) {
     api.landmarks(sessionId).then(setLandmarks).catch(() => setLandmarks(null))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId])
+
+  const selectPosition = (position: PPosition) => {
+    setSelectedPosition(position)
+    if (videoRef.current) {
+      videoRef.current.pause()
+      videoRef.current.currentTime = position.time_s
+    }
+  }
 
   // drive skeleton time from the video element
   useEffect(() => {
@@ -88,12 +100,26 @@ export default function SessionView({ sessionId }: { sessionId: string }) {
         <div className="panel">
           <h3>3D skeleton</h3>
           {landmarks ? (
-            <SkeletonCanvas landmarks={landmarks} time={time} />
+            <SkeletonCanvas
+              landmarks={landmarks}
+              time={time}
+              idealFrame={showIdeal ? selectedPosition?.ideal_frame : null}
+            />
           ) : (
             <p className="muted">no 3D data yet — run processing</p>
           )}
         </div>
       </div>
+
+      {metrics?.p_positions && (
+        <PPositionPanel
+          positions={metrics.p_positions}
+          selected={selectedPosition?.name ?? null}
+          onSelect={selectPosition}
+          showIdeal={showIdeal}
+          onToggleIdeal={setShowIdeal}
+        />
+      )}
 
       {!metrics && (
         <div className="panel">

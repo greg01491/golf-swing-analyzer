@@ -82,6 +82,12 @@ metrics:
     hip_sway_top_pct: { min: 0, max: 30 }
     hip_sway_impact_pct: { min: 0, max: 40 }
 
+analysis:
+  # Which arm is "lead" (nearer the target). Body-pose tracking alone can't
+  # tell left-handed from right-handed golfers apart, and the P-system
+  # checkpoints (P3/P5/P9 etc.) are defined relative to the lead arm.
+  golfer_handedness: right
+
 processing:
   # Automatically run the full analysis pipeline (2D pose -> 3D -> metrics ->
   # tips) on every capture, so results are waiting without pressing "process

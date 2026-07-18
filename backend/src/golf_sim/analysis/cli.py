@@ -12,10 +12,34 @@ import argparse
 import json
 from pathlib import Path
 
+from golf_sim.analysis.ideal_pose import build_all_ideal_frames
 from golf_sim.analysis.metrics import compute_metrics
+from golf_sim.analysis.p_positions import detect_p_positions
 from golf_sim.analysis.tips import generate_tips, tips_to_dicts
 from golf_sim.config import REPO_ROOT, load_config
 from golf_sim.trc import read_trc
+
+
+def _p_positions_payload(seq, report, config) -> list[dict]:
+    handedness = config.analysis.golfer_handedness
+    positions = detect_p_positions(seq, report.phases, handedness=handedness)
+    frame_by_name = {p.name: p.frame_index for p in positions}
+    ideal_frames = build_all_ideal_frames(
+        seq, report.phases, frame_by_name, config.metrics, handedness=handedness
+    )
+    return [
+        {
+            "name": p.name,
+            "label": p.label,
+            "frame_index": p.frame_index,
+            "time_s": round(p.time_s, 4),
+            "ideal_frame": {
+                marker: [round(float(c), 4) for c in xyz]
+                for marker, xyz in ideal_frames[p.name].items()
+            },
+        }
+        for p in positions
+    ]
 
 
 def pick_trc(session_dir: Path) -> Path:
@@ -38,7 +62,12 @@ def analyze_session(session_dir: Path, config) -> Path:
     tips = generate_tips(report)
 
     out_path = session_dir / "metrics.json"
-    payload = {"source_trc": trc_path.name, **report.to_dict(), "tips": tips_to_dicts(tips)}
+    payload = {
+        "source_trc": trc_path.name,
+        **report.to_dict(),
+        "tips": tips_to_dicts(tips),
+        "p_positions": _p_positions_payload(seq, report, config),
+    }
     out_path.write_text(json.dumps(payload, indent=2))
     return out_path
 
@@ -73,6 +102,10 @@ def main() -> None:
             else ("  OK" if metric["in_range"] else "  ** OUT OF RANGE **")
         )
         print(f"  {metric['name']}: {metric['value']} {metric['unit']}{flag}")
+
+    print("\nP-positions:")
+    for pos in report["p_positions"]:
+        print(f"  {pos['name']} ({pos['label']}): frame {pos['frame_index']}, {pos['time_s']}s")
 
     if report["tips"]:
         print("\ntips:")
