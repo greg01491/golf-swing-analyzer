@@ -64,9 +64,10 @@ calibration:
   # this many days (cameras drift/get bumped over time).
   max_age_days: 60
   # Checkerboard used for calibration: inner-corner count [rows, cols] and
-  # square size in mm. Defaults match Pose2Sim's demo board.
+  # square size in mm. Matches the generated A4 board
+  # (data/calibration_board_A4.png): 5x8 squares of 30mm = 4x7 inner corners.
   checkerboard_corners: [4, 7]
-  checkerboard_square_size_mm: 60
+  checkerboard_square_size_mm: 30
 
 metrics:
   # Per-metric reference ranges; edit freely. Units in degrees unless noted.
