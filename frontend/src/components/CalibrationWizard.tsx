@@ -85,11 +85,61 @@ function ShotCountdown({
   )
 }
 
+function DistanceGate({
+  onConfirm,
+}: {
+  onConfirm: (distanceM: number) => void
+}) {
+  const [value, setValue] = useState('')
+  const [touched, setTouched] = useState(false)
+
+  const parsed = Number(value)
+  const valid = Number.isFinite(parsed) && parsed > 0
+
+  return (
+    <div className="wizard">
+      <h2>Camera calibration</h2>
+      <div className="panel">
+        <h3>Step 0 — measure the distance between your cameras</h3>
+        <p>
+          Before anything else, measure the straight-line distance between the two cameras'
+          <strong> lenses</strong> — not the camera bodies, mounts, or tripods. Use the{' '}
+          <strong>same reference point on each lens</strong> (e.g. the centre of the front
+          glass on both) — measuring from a different point on each camera introduces an
+          error that scales <em>every</em> 3D measurement the calibration produces afterward,
+          so it's worth getting right.
+        </p>
+        <p className="muted">
+          If the cameras are far apart, at different heights, or awkward to reach at the same
+          time, it's much easier with a second person: one of you holds the tape measure at
+          one lens while the other reads the measurement at the other.
+        </p>
+        <label className="field">
+          distance between the two camera lenses (metres)
+          <input
+            value={value}
+            onChange={(e) => {
+              setValue(e.target.value)
+              setTouched(true)
+            }}
+            placeholder="e.g. 2.5"
+          />
+        </label>
+        {touched && !valid && <p className="error">enter a distance greater than 0</p>}
+        <button disabled={!valid} onClick={() => onConfirm(parsed)}>
+          confirm distance and continue
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export default function CalibrationWizard() {
   const [info, setInfo] = useState<CalibrationInfo | null>(null)
   const [stage, setStage] = useState<Stage>('camera_1')
   const [shots, setShots] = useState<CalibrationShot[]>([])
-  const [distance, setDistance] = useState('2.5')
+  const [distance, setDistance] = useState<number | null>(null)
+  const [editingDistance, setEditingDistance] = useState(false)
   const [compute, setCompute] = useState<CalibrationComputeStatus | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -125,13 +175,12 @@ export default function CalibrationWizard() {
 
   const runCompute = async () => {
     setError(null)
-    const d = Number(distance)
-    if (!Number.isFinite(d) || d <= 0) {
-      setError('enter the distance between the two cameras in metres')
+    if (!distance) {
+      setError('camera distance is missing — please re-enter it')
       return
     }
     try {
-      const s = await api.calibrationCompute(d)
+      const s = await api.calibrationCompute(distance)
       setCompute(s)
     } catch (e) {
       setError(String(e))
@@ -145,11 +194,31 @@ export default function CalibrationWizard() {
       .filter((s) => s.kind === 'intrinsics')
       .reduce((sum, s) => sum + (s.board_frames_detected[camera] ?? 0), 0)
 
+  // Distance must be confirmed before anything else in the wizard is usable —
+  // it's the one external measurement the whole calibration's scale depends on.
+  if (distance === null || editingDistance) {
+    return (
+      <DistanceGate
+        onConfirm={(d) => {
+          setDistance(d)
+          setEditingDistance(false)
+        }}
+      />
+    )
+  }
+
   const info_ = STAGE_INFO[stage]
 
   return (
     <div className="wizard">
       <h2>Camera calibration</h2>
+
+      <div className="panel distance-confirmed">
+        camera distance: <strong>{distance.toFixed(2)} m</strong>{' '}
+        <button className="link-btn" onClick={() => setEditingDistance(true)}>
+          change
+        </button>
+      </div>
 
       {info && (
         <div className={`panel calib-status ${info.stale ? 'stale' : info.exists ? 'ok' : ''}`}>
@@ -201,10 +270,7 @@ export default function CalibrationWizard() {
 
       <div className="panel">
         <h3>Compute calibration</h3>
-        <label className="field">
-          distance between the two cameras (metres)
-          <input value={distance} onChange={(e) => setDistance(e.target.value)} />
-        </label>
+        <p className="muted">using camera distance: {distance.toFixed(2)} m</p>
         <button onClick={runCompute} disabled={compute?.state === 'running'}>
           {compute?.state === 'running' ? 'computing…' : 'compute calibration'}
         </button>
