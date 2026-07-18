@@ -76,7 +76,7 @@ cameras are already held open by the running backend.
 2. Measure the straight-line distance between the two cameras in metres — you'll enter this
    in the wizard to anchor real-world scale.
 3. Open the app → **calibrate** tab. For **Step 1** and **Step 2** (one per camera): hold the
-   board about arm's length from that camera in view of the live preview, click **capture (3s
+   board about arm's length from that camera in view of the live preview, click **capture (10s
    countdown)**, and move/tilt the board to a new position before each capture. Aim for at
    least 4-6 captures per camera with the board clearly, fully visible in the preview.
 4. For **Step 3**: stand at your normal hitting position, fully visible to *both* camera

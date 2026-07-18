@@ -61,7 +61,7 @@ function ShotCountdown({
 
   const start = () => {
     if (counting !== null) return
-    setCounting(3)
+    setCounting(10)
   }
 
   useEffect(() => {
@@ -80,7 +80,7 @@ function ShotCountdown({
 
   return (
     <button className="countdown-btn" onClick={start} disabled={disabled || counting !== null}>
-      {counting !== null ? `capturing in ${counting}…` : 'capture (3s countdown)'}
+      {counting !== null ? `capturing in ${counting}…` : 'capture (10s countdown)'}
     </button>
   )
 }
