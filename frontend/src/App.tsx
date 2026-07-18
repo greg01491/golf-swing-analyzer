@@ -2,14 +2,17 @@ import { useCallback, useEffect, useState } from 'react'
 import { api } from './api'
 import type { SessionSummary } from './api'
 import ArmControl from './components/ArmControl'
+import CalibrationWizard from './components/CalibrationWizard'
 import SessionView from './components/SessionView'
 import Settings from './components/Settings'
 import './App.css'
 
+type View = 'sessions' | 'settings' | 'calibrate'
+
 export default function App() {
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [selected, setSelected] = useState<string | null>(null)
-  const [showSettings, setShowSettings] = useState(false)
+  const [view, setView] = useState<View>('sessions')
   const [backendUp, setBackendUp] = useState(true)
 
   const refresh = useCallback(() => {
@@ -30,9 +33,17 @@ export default function App() {
       <header>
         <h1>golf swing analyzer</h1>
         <ArmControl onCapture={refresh} />
-        <button className="settings-btn" onClick={() => setShowSettings((s) => !s)}>
-          {showSettings ? 'sessions' : 'settings'}
-        </button>
+        <nav className="view-nav">
+          <button className={view === 'sessions' ? 'active' : ''} onClick={() => setView('sessions')}>
+            sessions
+          </button>
+          <button className={view === 'calibrate' ? 'active' : ''} onClick={() => setView('calibrate')}>
+            calibrate
+          </button>
+          <button className={view === 'settings' ? 'active' : ''} onClick={() => setView('settings')}>
+            settings
+          </button>
+        </nav>
       </header>
 
       {!backendUp && (
@@ -41,9 +52,9 @@ export default function App() {
         </div>
       )}
 
-      {showSettings ? (
-        <Settings />
-      ) : (
+      {view === 'settings' && <Settings />}
+      {view === 'calibrate' && <CalibrationWizard />}
+      {view === 'sessions' && (
         <div className="main">
           <aside>
             <h3>sessions</h3>
@@ -60,10 +71,18 @@ export default function App() {
                       {dt ? (
                         <span className="session-when">
                           <span className="session-time">
-                            {dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                            {dt.toLocaleTimeString([], {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                              second: '2-digit',
+                            })}
                           </span>
                           <span className="session-date">
-                            {dt.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' })}
+                            {dt.toLocaleDateString([], {
+                              weekday: 'short',
+                              day: 'numeric',
+                              month: 'short',
+                            })}
                           </span>
                         </span>
                       ) : (

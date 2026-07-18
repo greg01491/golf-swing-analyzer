@@ -291,3 +291,91 @@ ol li {
 .range-row .field input {
   width: 80px;
 }
+
+.view-nav {
+  display: flex;
+  gap: 6px;
+}
+
+.wizard {
+  max-width: 760px;
+  padding: 16px;
+}
+
+.calib-status {
+  border-left: 3px solid var(--border);
+}
+
+.calib-status.ok {
+  border-left-color: var(--accent);
+}
+
+.calib-status.stale {
+  border-left-color: #fbbf24;
+}
+
+.wizard-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.preview-box {
+  background: #000;
+  border-radius: 6px;
+  overflow: hidden;
+  margin: 10px 0;
+}
+
+.preview-box img {
+  display: block;
+  width: 100%;
+  max-height: 360px;
+  object-fit: contain;
+}
+
+.preview-label {
+  font-size: 12px;
+  color: var(--muted);
+  padding: 4px 8px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.preview-placeholder {
+  padding: 40px 16px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.preview-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.wizard-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.countdown-btn {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.countdown-btn:disabled {
+  opacity: 0.6;
+  color: var(--text);
+  border-color: var(--border);
+}
+
+.calib-result ul {
+  padding-left: 20px;
+  font-size: 14px;
+  line-height: 1.6;
+}

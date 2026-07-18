@@ -35,6 +35,8 @@ def list_sessions(data_dir: Path) -> list[dict]:
     for session_dir in sorted(root.iterdir(), reverse=True):
         if not session_dir.is_dir():
             continue
+        if (session_dir / "calibration_shot.json").exists():
+            continue  # wizard captures live in /api/calibration/shots, not the swing list
         meta_path = session_dir / "metadata.json"
         try:
             metadata = json.loads(meta_path.read_text()) if meta_path.exists() else {}

@@ -166,6 +166,88 @@ def create_app(
         _write_config_preserving_comments(Path(config_path), new_config)
         return {"status": "saved", "note": "restart capture (disarm/arm) to apply"}
 
+    @app.get("/api/capture/preview/{camera}")
+    def capture_preview(camera: str):
+        import cv2
+        from fastapi.responses import Response
+
+        image = runtime.latest_frame(camera)
+        if image is None:
+            raise HTTPException(503, "camera not running -- arm capture first")
+        ok, jpeg = cv2.imencode(".jpg", image, [cv2.IMWRITE_JPEG_QUALITY, 70])
+        if not ok:
+            raise HTTPException(500, "encode failed")
+        return Response(
+            content=jpeg.tobytes(),
+            media_type="image/jpeg",
+            headers={"Cache-Control": "no-store"},
+        )
+
+    calib_compute: dict = {"state": "idle"}
+
+    @app.post("/api/calibration/shot")
+    def calibration_shot(body: dict):
+        from golf_sim.pose.wizard import mark_calibration_shot
+
+        kind = body.get("kind")
+        if kind not in ("intrinsics", "extrinsics"):
+            raise HTTPException(422, "kind must be 'intrinsics' or 'extrinsics'")
+        try:
+            session_dir = runtime.capture_calibration_shot()
+        except Exception as exc:
+            raise HTTPException(500, f"capture failed: {exc}") from exc
+        marker = mark_calibration_shot(session_dir, kind, config)
+        return {"id": session_dir.name, **marker}
+
+    @app.get("/api/calibration/shots")
+    def calibration_shots():
+        from golf_sim.pose.wizard import list_calibration_shots
+
+        return list_calibration_shots(data_dir)
+
+    @app.post("/api/calibration/compute")
+    def calibration_compute(body: dict):
+        from golf_sim.pose.wizard import compute_rig_calibration
+
+        distance = body.get("camera_distance_m")
+        if not isinstance(distance, (int, float)) or not 0.3 < distance < 20:
+            raise HTTPException(422, "camera_distance_m must be a number in metres (0.3-20)")
+        if calib_compute["state"] == "running":
+            return calib_compute
+
+        def run() -> None:
+            try:
+                result = compute_rig_calibration(
+                    data_dir,
+                    config,
+                    float(distance),
+                    on_stage=lambda msg: calib_compute.update(stage=msg),
+                )
+                calib_compute.update(state="done", result=result)
+            except Exception as exc:
+                calib_compute.update(state="error", error=str(exc))
+
+        calib_compute.clear()
+        calib_compute.update(state="running", stage="starting")
+        threading.Thread(target=run, daemon=True, name="rig-calibration").start()
+        return calib_compute
+
+    @app.get("/api/calibration/compute")
+    def calibration_compute_status():
+        return calib_compute
+
+    @app.get("/api/calibration/info")
+    def calibration_info():
+        from golf_sim.pose.calibrate import calibration_status
+
+        status = calibration_status(config.calibration)
+        return {
+            "exists": status.exists,
+            "file": str(status.file) if status.file else None,
+            "age_days": status.age_days,
+            "stale": status.stale,
+        }
+
     @app.get("/api/capture/status")
     def capture_status():
         return {

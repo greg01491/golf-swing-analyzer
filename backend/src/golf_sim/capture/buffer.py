@@ -29,3 +29,7 @@ class RollingBuffer:
     def latest_timestamp(self) -> float | None:
         with self._lock:
             return self._frames[-1].timestamp if self._frames else None
+
+    def latest(self) -> Frame | None:
+        with self._lock:
+            return self._frames[-1] if self._frames else None

@@ -64,6 +64,25 @@ class CaptureRuntime:
             return {}
         return {role: stream.healthy for role, stream in self._capture.streams.items()}
 
+    def latest_frame(self, role: str):
+        """Most recent buffered frame image for a camera (None if not
+        running/empty) -- powers the live preview endpoint."""
+        if self._capture is None or role not in self._capture.streams:
+            return None
+        frame = self._capture.streams[role].buffer.latest()
+        return None if frame is None else frame.image
+
+    def capture_calibration_shot(self) -> Path:
+        """Immediate capture for the calibration wizard: same pipeline as a
+        trigger but never dispatches auto-processing (the caller marks the
+        session as a calibration shot instead)."""
+        if not self.running:
+            self.start()
+        assert self._capture is not None
+        import time as _time
+
+        return self._capture.capture_now(_time.monotonic())
+
     def _on_trigger(self, trigger_time: float) -> None:
         assert self._capture is not None
         try:

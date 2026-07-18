@@ -42,8 +42,12 @@ python -m golf_sim.capture.enumerate
 python -m golf_sim.audio.cli devices
 ```
 
-Set the camera indices under `cameras.devices` and the mic index under `audio_trigger.device`
-in [config/config.yaml](../config/config.yaml).
+Set the mic index under `audio_trigger.device`, and each camera's `name` (the exact string
+from `enumerate`'s output — e.g. `"HD USB Camera"`) under `cameras.devices` in
+[config/config.yaml](../config/config.yaml). **Use `name`, not `id`:** Windows does not keep
+DirectShow camera indices stable across process restarts — the same physical camera can be
+index 0 one run and index 2 the next, silently recording from the wrong camera with no error.
+`id` is only a fallback for when no name is set.
 
 > **Windows mic gotcha:** `device: null` (system default) can fail outright with a PortAudio
 > "no driver installed" error even when the mic works fine. Prefer an explicit device index —
@@ -61,28 +65,31 @@ the hitting position). Put the suggested value in `audio_trigger.threshold_db`.
 
 ## 5. Calibrate the camera rig
 
-Print a checkerboard (default: 4×7 inner corners, 60 mm squares — match
-`calibration.checkerboard_corners` / `checkerboard_square_size_mm` if yours differs; a
-board that's wrong about square size silently scales all 3D output).
+Done in-app via the **calibrate** tab — no separate capture tool needed, since the rig
+cameras are already held open by the running backend.
 
-Place footage in `config/calibration/` following Pose2Sim's layout:
-
-```
-config/calibration/intrinsics/int_camera_1_img/   <- ~10 stills or a short video of the board
-config/calibration/intrinsics/int_camera_2_img/      from each camera, varied angles/positions
-config/calibration/extrinsics/camera_1_ext.png    <- one still per camera of the board lying
-config/calibration/extrinsics/camera_2_ext.png       flat at the hitting position
-```
-
-Then:
-
-```bash
-python -m golf_sim.pose.cli calibrate   # writes Calib*.toml into config/calibration/
-python -m golf_sim.pose.cli status      # confirm it's found and fresh
-```
+1. Print `data/calibration_board_A4.png` (or generate your own) at **100% scale — not
+   "fit to page"**. Measure one square with a ruler; the printed size rarely matches the
+   nominal one exactly, and a wrong size silently scales all 3D output. Enter the measured
+   size in `calibration.checkerboard_square_size_mm` in config.yaml (corner count in
+   `calibration.checkerboard_corners`, default 4×7). Tape the board to something rigid.
+2. Measure the straight-line distance between the two cameras in metres — you'll enter this
+   in the wizard to anchor real-world scale.
+3. Open the app → **calibrate** tab. For **Step 1** and **Step 2** (one per camera): hold the
+   board about arm's length from that camera in view of the live preview, click **capture (3s
+   countdown)**, and move/tilt the board to a new position before each capture. Aim for at
+   least 4-6 captures per camera with the board clearly, fully visible in the preview.
+4. For **Step 3**: stand at your normal hitting position, fully visible to *both* camera
+   previews at once, click capture, and do a slow practice swing (no club needed) during the
+   countdown + recording so your body sweeps through the shared view volume.
+5. Enter the camera-to-camera distance and click **compute calibration**. Watch for the
+   reprojection error in the result (well under 5px is good) and the estimated-height sanity
+   figure (should be roughly your real height) — if either looks wrong, recapture Step 3 with
+   more of your body visible in both views and try again.
 
 Recalibrate whenever a camera moves. The app flags calibration older than
-`calibration.max_age_days`.
+`calibration.max_age_days` (shown at the top of the calibrate tab and via
+`python -m golf_sim.pose.cli status`).
 
 ## 6. Run
 
@@ -125,3 +132,6 @@ CLI equivalents: `golf_sim.audio.cli listen`, `golf_sim.pose.cli full --latest`,
 | Metrics look absurd | Check the 2D overlays first (bad tracking → bad 3D); confirm calibration is current and square size was right |
 | Processing slow | CPU-only ONNX is ~30s/swing; set `pose.mode: lightweight`, or install a GPU ONNX runtime |
 | Settings save "restart capture to apply" | Expected — disarm/arm reloads the capture pipeline with new values |
+| Live preview in the calibrate tab shows "no signal" | Capture isn't armed yet — click **arm listening** first |
+| A camera goes solid black after the app's been running a long time | Known cheap-webcam driver stall; the app detects a run of all-black frames and reopens the device automatically within a few seconds — no action needed |
+| Calibration compute error mentions "correspondences" or "keypoints" | Step 3 capture didn't have enough of the body visible in both cameras at once — recapture standing further back or adjust framing |

@@ -51,6 +51,34 @@ export interface CaptureStatus {
   last_error: string | null
 }
 
+export interface CalibrationInfo {
+  exists: boolean
+  file: string | null
+  age_days: number | null
+  stale: boolean
+}
+
+export interface CalibrationShot {
+  id: string
+  kind: 'intrinsics' | 'extrinsics'
+  created_at?: string | null
+  board_frames_detected: Record<string, number>
+}
+
+export interface CalibrationComputeStatus {
+  state: 'idle' | 'running' | 'done' | 'error'
+  stage?: string
+  error?: string
+  result?: {
+    calib_file: string
+    camera_1: { lens_views: number; lens_rms_px: number }
+    camera_2: { lens_views: number; lens_rms_px: number }
+    keypoint_correspondences: number
+    mean_reprojection_error_px: number
+    estimated_person_height_m: number | null
+  }
+}
+
 // In dev, Vite proxies /api to the backend. In the packaged Electron app the
 // renderer runs from file://, so relative URLs must become absolute.
 const BASE = window.location.protocol === 'file:' ? 'http://127.0.0.1:8765' : ''
@@ -86,4 +114,23 @@ export const api = {
     fetch(`${BASE}/api/capture/disarm`, { method: 'POST' }).then((r) => json<unknown>(r)),
   trigger: () =>
     fetch(`${BASE}/api/capture/trigger`, { method: 'POST' }).then((r) => json<unknown>(r)),
+  previewUrl: (camera: string) => `${BASE}/api/capture/preview/${camera}`,
+  calibrationInfo: () =>
+    fetch(`${BASE}/api/calibration/info`).then((r) => json<CalibrationInfo>(r)),
+  calibrationShots: () =>
+    fetch(`${BASE}/api/calibration/shots`).then((r) => json<CalibrationShot[]>(r)),
+  calibrationShot: (kind: 'intrinsics' | 'extrinsics') =>
+    fetch(`${BASE}/api/calibration/shot`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind }),
+    }).then((r) => json<CalibrationShot>(r)),
+  calibrationCompute: (cameraDistanceM: number) =>
+    fetch(`${BASE}/api/calibration/compute`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ camera_distance_m: cameraDistanceM }),
+    }).then((r) => json<CalibrationComputeStatus>(r)),
+  calibrationComputeStatus: () =>
+    fetch(`${BASE}/api/calibration/compute`).then((r) => json<CalibrationComputeStatus>(r)),
 }
