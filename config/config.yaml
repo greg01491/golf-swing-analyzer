@@ -25,13 +25,15 @@ cameras:
   # a trigger fires, so it must retain the whole window until extraction
   # finishes, not just the pre-trigger portion.
   buffer_margin_s: 1.0
+  # camera_1 = down-the-line (behind golfer), camera_2 = face-on (side).
+  # Identified on the real rig 2026-07-18; index 1 is the laptop webcam.
   devices:
     - id: 0
       role: camera_1
       width: 1280
       height: 720
       fps: 60
-    - id: 1
+    - id: 2
       role: camera_2
       width: 1280
       height: 720

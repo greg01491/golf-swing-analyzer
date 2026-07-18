@@ -8,6 +8,7 @@ from pathlib import Path
 
 from golf_sim.capture.buffer import RollingBuffer
 from golf_sim.capture.extract import extract_window
+from golf_sim.capture.resample import resample_to_grid
 from golf_sim.capture.source import CameraSource, OpenCVCameraSource
 from golf_sim.capture.stream import CameraStream
 from golf_sim.capture.writer import SessionWriter
@@ -60,8 +61,15 @@ class CaptureService:
         pre = self.config.audio_trigger.pre_capture_delay_s
         duration = self.config.audio_trigger.capture_duration_s
 
-        clips = {
-            role: extract_window(stream.buffer, trigger_time, pre, duration)
-            for role, stream in self.streams.items()
-        }
+        # Snap every camera's window onto the same exact fps grid: real
+        # drivers duplicate/drop frames unpredictably (one rig camera read at
+        # ~2x its true rate), and downstream triangulation pairs cameras by
+        # frame index -- so identical, time-aligned frame counts are required.
+        start_time = trigger_time - pre
+        clips = {}
+        for role, stream in self.streams.items():
+            raw = extract_window(stream.buffer, trigger_time, pre, duration)
+            clips[role] = resample_to_grid(
+                raw, start_time, duration, fps=self.camera_meta[role]["fps"]
+            )
         return self.writer.write_session(clips, self.camera_meta, pre, duration)
