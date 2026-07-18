@@ -19,17 +19,26 @@ class AudioSource(Protocol):
 
 
 class SounddeviceMicSource:
-    def __init__(self, device: int | str | None, samplerate: int = 44100, block_size: int = 2048):
+    def __init__(
+        self, device: int | str | None, samplerate: int | None = None, block_size: int = 2048
+    ):
+        """samplerate None = use the device's default rate. WASAPI devices
+        reject rates they don't natively support (seen: a 48kHz-native mic
+        erroring on the old hardcoded 44100), so honoring the device default
+        is the reliable path."""
         self.device = device
         self.samplerate = samplerate
         self.block_size = block_size
         self._stream: sd.InputStream | None = None
 
     def open(self) -> None:
+        samplerate = self.samplerate
+        if samplerate is None and self.device is not None:
+            samplerate = int(sd.query_devices(self.device)["default_samplerate"])
         self._stream = sd.InputStream(
             device=self.device,
             channels=1,
-            samplerate=self.samplerate,
+            samplerate=samplerate,
             blocksize=self.block_size,
             dtype="float32",
         )
