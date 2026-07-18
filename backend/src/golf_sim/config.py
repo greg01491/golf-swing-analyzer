@@ -27,6 +27,9 @@ class CameraDeviceConfig(BaseModel):
     width: int
     height: int
     fps: int
+    # DirectShow device name; when set, takes precedence over id because
+    # Windows camera indices are not stable across processes.
+    name: str | None = None
 
 
 class CamerasConfig(BaseModel):

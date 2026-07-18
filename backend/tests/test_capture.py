@@ -149,3 +149,13 @@ def test_capture_now_accepts_explicit_trigger_time(tmp_path):
         service.stop()
 
     assert (session_dir / "camera_1.mp4").exists()
+
+
+def test_resolve_camera_index_by_name():
+    from golf_sim.capture.source import resolve_camera_index
+
+    names = ["PC Camera", "HP True Vision FHD Camera", "HD USB Camera"]
+    assert resolve_camera_index("HD USB Camera", names) == 2
+    assert resolve_camera_index("PC Camera", names) == 0
+    with pytest.raises(RuntimeError, match="no camera named"):
+        resolve_camera_index("Unplugged Cam", names)

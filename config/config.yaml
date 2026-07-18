@@ -26,14 +26,20 @@ cameras:
   # finishes, not just the pre-trigger portion.
   buffer_margin_s: 1.0
   # camera_1 = down-the-line (behind golfer), camera_2 = face-on (side).
-  # Identified on the real rig 2026-07-18; index 1 is the laptop webcam.
+  # Selected by DirectShow device NAME, not index -- Windows shuffles camera
+  # indices between processes (seen live: a swing recorded from the laptop
+  # webcam because the rig camera's index moved). `id` is only the fallback
+  # when no name is set. The laptop's own "HP True Vision FHD Camera" is
+  # deliberately not used.
   devices:
     - id: 0
+      name: PC Camera
       role: camera_1
       width: 1280
       height: 720
       fps: 60
     - id: 2
+      name: HD USB Camera
       role: camera_2
       width: 1280
       height: 720

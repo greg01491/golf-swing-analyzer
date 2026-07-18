@@ -7,6 +7,8 @@ dependencies = [
     "numpy>=1.26",
     "opencv-python>=4.9",
     "sounddevice>=0.4.6",
+    # stable-by-name camera selection on Windows (DSHOW indices shuffle)
+    "pygrabber>=0.2",
     "pyyaml>=6.0",
     "ruamel.yaml>=0.18",
     "pydantic>=2.6",

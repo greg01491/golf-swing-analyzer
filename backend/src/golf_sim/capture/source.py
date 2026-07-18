@@ -20,21 +20,41 @@ class CameraSource(Protocol):
     def close(self) -> None: ...
 
 
+def resolve_camera_index(name: str, device_names: list[str] | None = None) -> int:
+    """DirectShow camera indices are NOT stable across processes on Windows
+    (observed live: the same physical camera at index 0 in one process and
+    the laptop webcam there in the next -- a swing recorded from the wrong
+    camera). Device *names* are stable, so config can pin a name and we
+    resolve it to whatever index it holds right now."""
+    if device_names is None:
+        from pygrabber.dshow_graph import FilterGraph
+
+        device_names = FilterGraph().get_input_devices()
+    try:
+        return device_names.index(name)
+    except ValueError:
+        raise RuntimeError(f"no camera named {name!r} connected (found: {device_names})") from None
+
+
 class OpenCVCameraSource:
-    def __init__(self, index: int, width: int, height: int, fps: float):
+    def __init__(self, index: int, width: int, height: int, fps: float, name: str | None = None):
+        """If name is given it takes precedence over index (see
+        resolve_camera_index for why)."""
         self.index = index
+        self.name = name
         self.width = width
         self.height = height
         self.fps = fps
         self._cap: cv2.VideoCapture | None = None
 
     def open(self) -> None:
-        cap = cv2.VideoCapture(self.index, cv2.CAP_DSHOW)
+        index = self.index if self.name is None else resolve_camera_index(self.name)
+        cap = cv2.VideoCapture(index, cv2.CAP_DSHOW)
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
         cap.set(cv2.CAP_PROP_FPS, self.fps)
         if not cap.isOpened():
-            raise RuntimeError(f"could not open camera index {self.index}")
+            raise RuntimeError(f"could not open camera {self.name or index!r}")
         self._cap = cap
 
     def read(self) -> Frame | None:

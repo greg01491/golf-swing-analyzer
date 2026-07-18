@@ -30,7 +30,7 @@ class CaptureService:
             source = (
                 sources[dev.role]
                 if sources is not None
-                else OpenCVCameraSource(dev.id, dev.width, dev.height, dev.fps)
+                else OpenCVCameraSource(dev.id, dev.width, dev.height, dev.fps, name=dev.name)
             )
             buffer = RollingBuffer(max_age_s=buffer_age)
             self.streams[dev.role] = CameraStream(dev.role, source, buffer)
