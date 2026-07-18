@@ -56,6 +56,10 @@ class MetricsConfig(BaseModel):
     reference_ranges: dict[str, ReferenceRange]
 
 
+class ProcessingConfig(BaseModel):
+    auto_process: bool
+
+
 class StorageConfig(BaseModel):
     data_dir: str
     db_file: str
@@ -72,6 +76,7 @@ class Config(BaseModel):
     pose: PoseConfig
     calibration: CalibrationConfig
     metrics: MetricsConfig
+    processing: ProcessingConfig
     storage: StorageConfig
     api: ApiConfig
 

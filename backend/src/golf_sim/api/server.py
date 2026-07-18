@@ -48,13 +48,28 @@ def _write_config_preserving_comments(config_path: Path, new_config: dict) -> No
         ruamel.dump(doc, f)
 
 
+def _run_full_pipeline(session_dir: Path, config: Config) -> None:
+    """2D pose -> 3D reconstruction -> metrics + tips for one session."""
+    from golf_sim.analysis.cli import analyze_session
+    from golf_sim.pose.estimate import run_pose_estimation
+    from golf_sim.pose.reconstruct import run_reconstruction
+
+    run_pose_estimation(session_dir, config.pose)
+    run_reconstruction(session_dir, config)
+    analyze_session(session_dir, config)
+
+
 def create_app(
     config: Config | None = None,
     runtime: CaptureRuntime | None = None,
     config_path: Path = DEFAULT_CONFIG_PATH,
+    processor=None,
 ) -> FastAPI:
+    """processor: override the per-session processing pipeline (tests inject a
+    fake; None means the real pose->3D->metrics chain)."""
     config = config or load_config(config_path)
     runtime = runtime or CaptureRuntime(config)
+    processor = processor or _run_full_pipeline
     data_dir = Path(config.storage.data_dir)
     if not data_dir.is_absolute():
         data_dir = REPO_ROOT / data_dir
@@ -70,6 +85,28 @@ def create_app(
         CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]
     )
     processing: dict[str, str] = {}  # session_id -> "running" | "done" | "error: ..."
+    # Pose estimation is CPU-heavy; serialize so back-to-back captures queue
+    # instead of thrashing the machine while it's also buffering cameras.
+    processing_lock = threading.Lock()
+
+    def start_processing(session_dir: Path) -> None:
+        session_id = session_dir.name
+        if processing.get(session_id) == "running":
+            return
+
+        def run() -> None:
+            with processing_lock:
+                try:
+                    processor(session_dir, config)
+                    processing[session_id] = "done"
+                except Exception as exc:
+                    processing[session_id] = f"error: {exc}"
+
+        processing[session_id] = "running"
+        threading.Thread(target=run, daemon=True, name=f"process-{session_id}").start()
+
+    if config.processing.auto_process:
+        runtime.on_session = start_processing
 
     @app.get("/api/sessions")
     def get_sessions():
@@ -108,25 +145,8 @@ def create_app(
             session_dir = session_dir_for(data_dir, session_id)
         except FileNotFoundError as exc:
             raise HTTPException(404, str(exc)) from exc
-        if processing.get(session_id) == "running":
-            return {"status": "running"}
-
-        def run() -> None:
-            try:
-                from golf_sim.analysis.cli import analyze_session
-                from golf_sim.pose.estimate import run_pose_estimation
-                from golf_sim.pose.reconstruct import run_reconstruction
-
-                run_pose_estimation(session_dir, config.pose)
-                run_reconstruction(session_dir, config)
-                analyze_session(session_dir, config)
-                processing[session_id] = "done"
-            except Exception as exc:
-                processing[session_id] = f"error: {exc}"
-
-        processing[session_id] = "running"
-        threading.Thread(target=run, daemon=True, name=f"process-{session_id}").start()
-        return {"status": "running"}
+        start_processing(session_dir)
+        return {"status": processing.get(session_id, "running")}
 
     @app.get("/api/sessions/{session_id}/process")
     def process_status(session_id: str):

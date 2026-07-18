@@ -77,6 +77,23 @@ export default function Settings() {
       ))}
 
       <div className="panel">
+        <h3>processing</h3>
+        <label className="field">
+          auto-process each capture (pose → 3D → metrics → tips)
+          <input
+            type="checkbox"
+            checked={Boolean(config.processing?.auto_process)}
+            onChange={(e) =>
+              setConfig({
+                ...config,
+                processing: { ...config.processing, auto_process: e.target.checked },
+              })
+            }
+          />
+        </label>
+      </div>
+
+      <div className="panel">
         <h3>cameras</h3>
         {config.cameras.devices.map((dev: Cfg, i: number) => (
           <div key={i} className="camera-config">

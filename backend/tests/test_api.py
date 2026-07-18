@@ -24,10 +24,24 @@ def config(tmp_path) -> Config:
     return Config.model_validate(raw)
 
 
+class FakeProcessor:
+    """Stands in for the pose->3D->metrics pipeline: records calls and writes
+    a metrics.json so 'processed' state is observable through the API."""
+
+    def __init__(self):
+        self.calls = []
+
+    def __call__(self, session_dir, config):
+        self.calls.append(session_dir.name)
+        (session_dir / "metrics.json").write_text(json.dumps({"metrics": [], "tips": []}))
+
+
 @pytest.fixture
-def client(tmp_path, config) -> TestClient:
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text(yaml.safe_dump(json.loads(config.model_dump_json())))
+def processor() -> FakeProcessor:
+    return FakeProcessor()
+
+
+def _make_client(config, config_path, processor):
     runtime = CaptureRuntime(
         config,
         camera_sources={
@@ -36,8 +50,16 @@ def client(tmp_path, config) -> TestClient:
         },
         audio_source=SyntheticAudioSource(amplitudes=[0.001] * 2000),
     )
-    app = create_app(config=config, runtime=runtime, config_path=config_path)
-    with TestClient(app) as test_client:
+    app = create_app(config=config, runtime=runtime, config_path=config_path, processor=processor)
+    return TestClient(app), runtime
+
+
+@pytest.fixture
+def client(tmp_path, config, processor) -> TestClient:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.safe_dump(json.loads(config.model_dump_json())))
+    test_client, runtime = _make_client(config, config_path, processor)
+    with test_client:
         yield test_client
     runtime.stop()
 
@@ -102,6 +124,64 @@ def test_config_roundtrip_and_validation(client, tmp_path):
 
     invalid = {"audio_trigger": {"nonsense": True}}
     assert client.put("/api/config", json=invalid).status_code == 422
+
+
+def _wait_for_capture(client, timeout_s=5.0):
+    import time
+
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        status = client.get("/api/capture/status").json()
+        if status["last_session"] or status["last_error"]:
+            return status
+        time.sleep(0.05)
+    return client.get("/api/capture/status").json()
+
+
+def _wait_for_processing(client, session_id, timeout_s=5.0):
+    import time
+
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        status = client.get(f"/api/sessions/{session_id}/process").json()["status"]
+        if status != "running":
+            return status
+        time.sleep(0.05)
+    return "running"
+
+
+def test_auto_process_runs_pipeline_after_capture(client, processor):
+    client.post("/api/capture/trigger")
+    status = _wait_for_capture(client)
+    assert status["last_error"] is None
+    session_id = status["last_session"]
+
+    assert _wait_for_processing(client, session_id) == "done"
+    assert processor.calls == [session_id]
+    detail = client.get(f"/api/sessions/{session_id}").json()
+    assert detail["metrics"] == {"metrics": [], "tips": []}
+
+
+def test_auto_process_off_leaves_session_unprocessed(tmp_path, config, processor):
+    raw = json.loads(config.model_dump_json())
+    raw["processing"]["auto_process"] = False
+    off_config = type(config).model_validate(raw)
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.safe_dump(raw))
+
+    test_client, runtime = _make_client(off_config, config_path, processor)
+    with test_client:
+        test_client.post("/api/capture/trigger")
+        status = _wait_for_capture(test_client)
+        session_id = status["last_session"]
+        assert session_id is not None
+
+        import time
+
+        time.sleep(0.3)  # give any (wrong) auto-processing a chance to fire
+        assert processor.calls == []
+        assert test_client.get(f"/api/sessions/{session_id}/process").json()["status"] == "idle"
+    runtime.stop()
 
 
 def test_capture_arm_disarm_and_manual_trigger(client):

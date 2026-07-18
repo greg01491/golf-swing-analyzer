@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from collections.abc import Callable
 from pathlib import Path
 
 from golf_sim.audio.service import AudioTriggerService
@@ -36,6 +37,10 @@ class CaptureRuntime:
         self._lock = threading.Lock()
         self.last_session_dir: Path | None = None
         self.last_error: str | None = None
+        # Called with the session dir after every successful capture; the API
+        # server wires this to auto-processing when processing.auto_process
+        # is enabled. Must not raise.
+        self.on_session: Callable[[Path], None] | None = None
 
     @property
     def running(self) -> bool:
@@ -67,6 +72,12 @@ class CaptureRuntime:
         except Exception as exc:  # capture failure must not kill the listener (NFR5)
             self.last_error = str(exc)
             logger.exception("capture failed")
+            return
+        if self.on_session is not None:
+            try:
+                self.on_session(self.last_session_dir)
+            except Exception:  # processing kickoff failure must not kill the listener
+                logger.exception("on_session hook failed")
 
     def start(self) -> None:
         with self._lock:

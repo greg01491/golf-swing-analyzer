@@ -17,6 +17,7 @@ from golf_sim.config import (
     Config,
     MetricsConfig,
     PoseConfig,
+    ProcessingConfig,
     StorageConfig,
 )
 
@@ -96,6 +97,7 @@ def _tiny_config(tmp_path) -> Config:
             checkerboard_square_size_mm=60,
         ),
         metrics=MetricsConfig(reference_ranges={}),
+        processing=ProcessingConfig(auto_process=False),
         storage=StorageConfig(data_dir=str(tmp_path), db_file=str(tmp_path / "sessions.db")),
         api=ApiConfig(host="127.0.0.1", port=8765),
     )
