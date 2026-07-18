@@ -49,6 +49,15 @@ export default function ArmControl({ onCapture }: { onCapture: () => void }) {
         <button onClick={call(api.arm)}>arm listening</button>
       )}
       <button onClick={call(api.trigger)}>manual capture</button>
+      {status?.mic_error && <span className="error">mic: {status.mic_error}</span>}
+      {status &&
+        Object.entries(status.camera_health)
+          .filter(([, ok]) => !ok)
+          .map(([role]) => (
+            <span key={role} className="error">
+              {role} not responding
+            </span>
+          ))}
       {status?.last_error && <span className="error">{status.last_error}</span>}
       {error && <span className="error">{error}</span>}
     </div>

@@ -49,6 +49,16 @@ class CaptureRuntime:
     def mic_level_db(self) -> float | None:
         return self._audio.last_level_db if self._audio else None
 
+    @property
+    def mic_error(self) -> str | None:
+        return self._audio.last_error if self._audio else None
+
+    @property
+    def camera_health(self) -> dict[str, bool]:
+        if self._capture is None:
+            return {}
+        return {role: stream.healthy for role, stream in self._capture.streams.items()}
+
     def _on_trigger(self, trigger_time: float) -> None:
         assert self._capture is not None
         try:

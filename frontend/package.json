@@ -1,9 +1,24 @@
 {
-  "name": "frontend",
+  "name": "golf-swing-analyzer",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "main": "electron/main.js",
+  "build": {
+    "appId": "com.gregbrown.golfswinganalyzer",
+    "productName": "Golf Swing Analyzer",
+    "files": ["dist/**", "electron/**"],
+    "directories": {
+      "output": "release"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",

@@ -24,6 +24,7 @@ class AudioTriggerService:
         self.detector = detector
         self.on_trigger = on_trigger
         self.last_level_db: float | None = None
+        self.last_error: str | None = None
 
         self._armed = threading.Event()
         self._stop = threading.Event()
@@ -38,10 +39,20 @@ class AudioTriggerService:
 
     def _run(self) -> None:
         while not self._stop.is_set():
-            block = self.source.read()
+            try:
+                block = self.source.read()
+            except Exception as exc:
+                # Mic unplugged/driver error must not kill the listener
+                # thread (NFR5): surface the error, blank the level meter,
+                # and keep retrying at a gentle pace in case it comes back.
+                self.last_error = str(exc)
+                self.last_level_db = None
+                time.sleep(1.0)
+                continue
             if block is None:
                 time.sleep(0.001)
                 continue
+            self.last_error = None
             level_db = compute_level_db(block.samples)
             self.last_level_db = level_db
             if self._armed.is_set() and self.detector.check(level_db, block.timestamp):

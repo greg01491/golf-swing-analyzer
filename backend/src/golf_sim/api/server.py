@@ -60,6 +60,15 @@ def create_app(
         data_dir = REPO_ROOT / data_dir
 
     app = FastAPI(title="golf-sim")
+    # The packaged Electron renderer runs from file:// (null origin), so it
+    # needs CORS to reach this server. Permissive is acceptable here: the
+    # server binds 127.0.0.1 only (config.yaml api.host) and holds no
+    # secrets beyond what's already on the local machine.
+    from fastapi.middleware.cors import CORSMiddleware
+
+    app.add_middleware(
+        CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]
+    )
     processing: dict[str, str] = {}  # session_id -> "running" | "done" | "error: ..."
 
     @app.get("/api/sessions")
@@ -143,6 +152,8 @@ def create_app(
             "running": runtime.running,
             "armed": runtime.armed,
             "mic_level_db": runtime.mic_level_db,
+            "mic_error": runtime.mic_error,
+            "camera_health": runtime.camera_health,
             "last_session": runtime.last_session_dir.name if runtime.last_session_dir else None,
             "last_error": runtime.last_error,
         }

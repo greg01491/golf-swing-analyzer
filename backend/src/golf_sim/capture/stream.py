@@ -3,10 +3,19 @@ buffer, independent of when/whether a capture is ever triggered."""
 
 from __future__ import annotations
 
+import logging
 import threading
+import time
 
 from golf_sim.capture.buffer import RollingBuffer
 from golf_sim.capture.source import CameraSource
+
+logger = logging.getLogger(__name__)
+
+# After this many consecutive failed reads the stream reports unhealthy
+# (a USB camera unplug shows up as read() returning None / raising forever).
+_UNHEALTHY_AFTER_FAILURES = 30
+_FAILURE_BACKOFF_S = 0.05
 
 
 class CameraStream:
@@ -14,8 +23,14 @@ class CameraStream:
         self.role = role
         self.source = source
         self.buffer = buffer
+        self.last_error: str | None = None
+        self._consecutive_failures = 0
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
+
+    @property
+    def healthy(self) -> bool:
+        return self._consecutive_failures < _UNHEALTHY_AFTER_FAILURES
 
     def start(self) -> None:
         self.source.open()
@@ -25,9 +40,25 @@ class CameraStream:
 
     def _run(self) -> None:
         while not self._stop.is_set():
-            frame = self.source.read()
+            try:
+                frame = self.source.read()
+            except Exception as exc:  # device yanked mid-read must not kill the thread (NFR5)
+                frame = None
+                self.last_error = str(exc)
             if frame is not None:
                 self.buffer.push(frame)
+                self._consecutive_failures = 0
+                continue
+            # back off instead of hot-spinning while the device is gone
+            self._consecutive_failures += 1
+            if self._consecutive_failures == _UNHEALTHY_AFTER_FAILURES:
+                logger.error(
+                    "camera %s unhealthy after %d failed reads (%s)",
+                    self.role,
+                    self._consecutive_failures,
+                    self.last_error or "read returned no frame",
+                )
+            time.sleep(_FAILURE_BACKOFF_S)
 
     def stop(self) -> None:
         self._stop.set()

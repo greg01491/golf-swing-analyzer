@@ -89,12 +89,12 @@
 - Dev workflow: `python -m golf_sim.api.server` in one terminal, `npm run dev` (browser) or `npm run electron:dev` (desktop shell) in another
 
 ## Phase 8 — Hardening & Packaging
-- [ ] Run extended real-world test sessions (multiple rooms/noise levels); log false triggers/misses
-- [ ] Tune default threshold/delay/duration/cooldown based on test data
-- [ ] Add error handling/recovery for: camera disconnect, mic disconnect, failed pose estimation, corrupt session
-- [ ] Write setup/calibration/troubleshooting docs
-- [ ] Build Windows installer/package
-- [ ] Final pass: confirm every parameter in spec §7 is genuinely configurable, not hardcoded
+- [ ] Run extended real-world test sessions (multiple rooms/noise levels); log false triggers/misses — **needs your rig**
+- [ ] Tune default threshold/delay/duration/cooldown based on test data — **needs your rig**
+- [x] Add error handling/recovery for: camera disconnect (stream survives + backs off + reports unhealthy, surfaced as "camera_N not responding" in the UI header), mic disconnect (listener thread survives, retries at 1Hz, error surfaced in UI), failed pose estimation (process endpoint reports `error: ...`), corrupt session metadata (skipped gracefully, listing keeps working). All covered by tests (`test_hardening.py`)
+- [x] Write setup/calibration/troubleshooting docs — [docs/setup.md](docs/setup.md): install, rig placement, device selection (incl. the WASAPI mic finding), threshold + checkerboard calibration walkthroughs, first-time sync/occlusion validation, troubleshooting table
+- [x] Windows installer config — electron-builder NSIS target (`npm run electron:build` → `frontend/release/`). **Honest caveat:** the installer packages the UI only; the Python backend still runs from its venv (`python -m golf_sim.api.server`). Bundling the backend (PyInstaller + auto-spawn from Electron) is deferred — worth doing only once the rig workflow has settled
+- [x] Final pass: confirm every parameter in spec §7 is genuinely configurable — audited: threshold/delay/duration/cooldown/camera-res-fps/metric-ranges all flow from config.yaml with no hardcoded copies (grep-verified); also fixed packaged-app networking (file:// origin → absolute API base + CORS on the localhost server)
 
 ## Backlog / Deferred (not scheduled — see spec Non-Goals)
 - [ ] Full 3D mesh (SMPL-style) reconstruction option

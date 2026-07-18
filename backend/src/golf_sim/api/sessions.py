@@ -22,7 +22,11 @@ def list_sessions(data_dir: Path) -> list[dict]:
         if not session_dir.is_dir():
             continue
         meta_path = session_dir / "metadata.json"
-        metadata = json.loads(meta_path.read_text()) if meta_path.exists() else {}
+        try:
+            metadata = json.loads(meta_path.read_text()) if meta_path.exists() else {}
+        except (json.JSONDecodeError, OSError):
+            # one corrupt session must not take down the whole browser (NFR5)
+            metadata = {}
         out.append(
             {
                 "id": session_dir.name,
