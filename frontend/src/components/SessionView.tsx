@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../api'
 import type { Landmarks, PPosition, SessionDetail } from '../api'
 import PPositionPanel from './PPositionPanel'
@@ -12,6 +12,7 @@ export default function SessionView({ sessionId }: { sessionId: string }) {
   const [processState, setProcessState] = useState<string>('idle')
   const [selectedPosition, setSelectedPosition] = useState<PPosition | null>(null)
   const [showIdeal, setShowIdeal] = useState(true)
+  const [showOverlay, setShowOverlay] = useState(true)
   const videoRef = useRef<HTMLVideoElement>(null)
 
   useEffect(() => {
@@ -60,6 +61,16 @@ export default function SessionView({ sessionId }: { sessionId: string }) {
     return () => clearInterval(id)
   }, [processState, sessionId])
 
+  const overlayAvailable = (detail?.overlay_cameras ?? []).includes(camera)
+  // memoized because videoUrl embeds a cache-buster: this component
+  // re-renders every animation frame (video->skeleton time sync), and a
+  // fresh URL per render would reset the <video> src continuously, pinning
+  // playback at 0:00
+  const videoSrc = useMemo(
+    () => api.videoUrl(sessionId, camera, overlayAvailable && showOverlay),
+    [sessionId, camera, overlayAvailable, showOverlay],
+  )
+
   if (!detail) return <div className="panel">loading…</div>
 
   const metrics = detail.metrics
@@ -88,13 +99,23 @@ export default function SessionView({ sessionId }: { sessionId: string }) {
             ))}
           </div>
           <video
-            key={`${sessionId}-${camera}`}
+            key={videoSrc}
             ref={videoRef}
-            src={api.videoUrl(sessionId, camera)}
+            src={videoSrc}
             controls
             loop
             width={480}
           />
+          {overlayAvailable && (
+            <label className="overlay-toggle">
+              <input
+                type="checkbox"
+                checked={showOverlay}
+                onChange={(e) => setShowOverlay(e.target.checked)}
+              />
+              show skeleton drawn on the video
+            </label>
+          )}
         </div>
 
         <div className="panel">

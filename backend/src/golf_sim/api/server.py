@@ -120,17 +120,28 @@ def create_app(
             raise HTTPException(404, str(exc)) from exc
 
     @app.get("/api/sessions/{session_id}/video/{camera}")
-    def get_video(session_id: str, camera: str):
+    def get_video(session_id: str, camera: str, overlay: bool = False):
         try:
             session_dir = session_dir_for(data_dir, session_id)
         except FileNotFoundError as exc:
             raise HTTPException(404, str(exc)) from exc
         if Path(camera).name != camera:
             raise HTTPException(404, "invalid camera name")
-        video = session_dir / f"{camera}.mp4"
+        # overlay=true serves the pose-estimation debug video (skeleton drawn
+        # on the golfer) instead of the raw clip; produced during processing
+        # when pose.save_debug_video is on
+        video = (
+            session_dir / "pose2sim" / "pose" / f"{camera}_pose.mp4"
+            if overlay
+            else session_dir / f"{camera}.mp4"
+        )
         if not video.exists():
-            raise HTTPException(404, f"no clip {camera} in session {session_id}")
-        return FileResponse(video, media_type="video/mp4")
+            raise HTTPException(404, f"no {'overlay ' if overlay else ''}clip {camera}")
+        # no-cache = revalidate (ETag/mtime) before reuse, not "don't cache":
+        # clips can be replaced in place (H.264 migration, overlay rewrites
+        # after reprocessing), and Chromium's media cache otherwise kept
+        # serving a stale pre-transcode copy that no longer decoded
+        return FileResponse(video, media_type="video/mp4", headers={"Cache-Control": "no-cache"})
 
     @app.get("/api/sessions/{session_id}/landmarks")
     def get_landmarks(session_id: str):
@@ -197,11 +208,15 @@ def create_app(
         kind = body.get("kind")
         if kind not in ("intrinsics", "extrinsics"):
             raise HTTPException(422, "kind must be 'intrinsics' or 'extrinsics'")
+        for_camera = body.get("camera")
+        valid_roles = {dev.role for dev in config.cameras.devices}
+        if for_camera is not None and for_camera not in valid_roles:
+            raise HTTPException(422, f"camera must be one of {sorted(valid_roles)}")
         try:
             session_dir = runtime.capture_calibration_shot()
         except Exception as exc:
             raise HTTPException(500, f"capture failed: {exc}") from exc
-        marker = mark_calibration_shot(session_dir, kind, config)
+        marker = mark_calibration_shot(session_dir, kind, config, for_camera=for_camera)
         return {"id": session_dir.name, **marker}
 
     @app.get("/api/calibration/shots")
@@ -209,6 +224,12 @@ def create_app(
         from golf_sim.pose.wizard import list_calibration_shots
 
         return list_calibration_shots(data_dir)
+
+    @app.delete("/api/calibration/shots")
+    def calibration_shots_clear():
+        from golf_sim.pose.wizard import clear_calibration_shots
+
+        return {"deleted": clear_calibration_shots(data_dir)}
 
     @app.post("/api/calibration/compute")
     def calibration_compute(body: dict):
@@ -261,6 +282,22 @@ def create_app(
 
         png = generate_board_png(tuple(config.calibration.checkerboard_corners))
         return Response(content=png, media_type="image/png")
+
+    @app.get("/api/diagnostics/system")
+    def diagnostics_system():
+        from golf_sim.diagnostics.system_check import check_system
+
+        return check_system(Path(config.storage.data_dir), config.system_requirements)
+
+    @app.get("/api/diagnostics/cameras")
+    def diagnostics_cameras():
+        from golf_sim.diagnostics.camera_check import check_camera
+
+        if runtime.running:
+            raise HTTPException(
+                409, "disarm capture first to run the camera check -- the cameras are in use"
+            )
+        return [check_camera(dev, config.system_requirements) for dev in config.cameras.devices]
 
     @app.get("/api/capture/status")
     def capture_status():

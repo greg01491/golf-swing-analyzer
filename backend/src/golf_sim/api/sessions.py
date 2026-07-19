@@ -75,11 +75,19 @@ def session_detail(data_dir: Path, session_id: str) -> dict:
     session_dir = session_dir_for(data_dir, session_id)
     meta_path = session_dir / "metadata.json"
     metrics_path = session_dir / "metrics.json"
+    pose_dir = session_dir / "pose2sim" / "pose"
     return {
         "id": session_id,
         "metadata": json.loads(meta_path.read_text()) if meta_path.exists() else {},
         "metrics": json.loads(metrics_path.read_text()) if metrics_path.exists() else None,
         "cameras": sorted(p.stem for p in session_dir.glob("camera_*.mp4")),
+        # cameras with a pose-overlay debug video (skeleton drawn on the
+        # golfer) available -- lets the player offer an overlay toggle
+        "overlay_cameras": (
+            sorted(p.stem.removesuffix("_pose") for p in pose_dir.glob("camera_*_pose.mp4"))
+            if pose_dir.is_dir()
+            else []
+        ),
     }
 
 

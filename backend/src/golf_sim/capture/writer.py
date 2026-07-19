@@ -11,12 +11,16 @@ from pathlib import Path
 import cv2
 
 from golf_sim.capture.frame import Frame
+from golf_sim.capture.transcode import ensure_h264
 
 
 def write_clip(frames: list[Frame], path: Path, fps: float) -> None:
     if not frames:
         raise ValueError("cannot write a clip with no frames")
     height, width = frames[0].image.shape[:2]
+    # OpenCV can only encode mp4v here (no H.264 without an external DLL);
+    # ensure_h264 re-encodes right after so the clip actually plays in the
+    # app's Chromium-based player -- mp4v renders as a black frame there.
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     writer = cv2.VideoWriter(str(path), fourcc, fps, (width, height))
     try:
@@ -24,6 +28,7 @@ def write_clip(frames: list[Frame], path: Path, fps: float) -> None:
             writer.write(frame.image)
     finally:
         writer.release()
+    ensure_h264(path)
 
 
 class SessionWriter:

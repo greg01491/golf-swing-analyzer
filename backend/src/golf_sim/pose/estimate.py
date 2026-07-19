@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from golf_sim.capture.transcode import ensure_h264
 from golf_sim.config import PoseConfig
 from golf_sim.pose.project import landmark_json_dirs, overlay_videos, prepare_pose_project
 
@@ -37,6 +38,11 @@ def run_pose_estimation(session_dir: Path, pose_config: PoseConfig) -> PoseEstim
         },
     }
     Pose2Sim.poseEstimation(config)
+
+    # Pose2Sim writes the overlay videos through OpenCV too, so they're
+    # mp4v -- unplayable in the app's Chromium player without this.
+    for video in overlay_videos(project_dir):
+        ensure_h264(video)
 
     result = PoseEstimationResult(
         project_dir=project_dir,

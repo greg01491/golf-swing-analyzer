@@ -26,36 +26,14 @@ const STAGE_INFO: Record<Stage, { title: string; instructions: string; camera: s
   },
 }
 
-// Target shot counts shown as a big "X / N" readout -- not a hard cap, just
-// a rough goal so someone stood across the room from the laptop knows
-// roughly when to stop posing instead of guessing.
+// Target shot counts shown as a big "X / N" readout -- also the auto-loop's
+// stopping point, not just display: once reached, the loop below stops
+// itself instead of making the user keep re-clicking.
 const SHOT_TARGET = { intrinsics: 8, extrinsics: 1 } as const
 
-function useCaptureCountdown(onDone: () => void) {
-  const [counting, setCounting] = useState<number | null>(null)
-  const timerRef = useRef<number | null>(null)
+const COUNTDOWN_OPTIONS = [3, 5, 10, 15]
 
-  const start = () => {
-    if (counting !== null) return
-    setCounting(10)
-  }
-
-  useEffect(() => {
-    if (counting === null) return
-    if (counting === 0) {
-      onDone()
-      setCounting(null)
-      return
-    }
-    timerRef.current = window.setTimeout(() => setCounting((c) => (c ?? 1) - 1), 1000)
-    return () => {
-      if (timerRef.current) clearTimeout(timerRef.current)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [counting])
-
-  return { counting, start }
-}
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 function SetupGate({ onConfirm }: { onConfirm: (distanceM: number) => void }) {
@@ -195,23 +173,122 @@ export default function CalibrationWizard() {
 
   const [justCaptured, setJustCaptured] = useState(false)
 
-  const capture = async (kind: 'intrinsics' | 'extrinsics') => {
+  // returns the freshly-fetched shot list (not just setting state) so the
+  // capture loop below can check the up-to-date count without racing React's
+  // render cycle
+  const capture = async (kind: 'intrinsics' | 'extrinsics', forCamera: string) => {
     setError(null)
     try {
-      await api.calibrationShot(kind)
-      await refreshShots()
+      // the position capture records both cameras at once, so a per-camera
+      // tag would be meaningless there -- only lens shots carry one
+      await api.calibrationShot(kind, kind === 'intrinsics' ? forCamera : undefined)
+      const updated = await api.calibrationShots()
+      setShots(updated)
       // confirms a shot actually landed -- from across the room you can't
       // see the small status text change, so flash something unmissable
       setJustCaptured(true)
       setTimeout(() => setJustCaptured(false), 1500)
+      return updated
     } catch (e) {
       setError(String(e))
+      return null
     }
   }
 
-  const { counting, start: startCountdown } = useCaptureCountdown(() =>
-    capture(stage === 'position' ? 'extrinsics' : 'intrinsics'),
-  )
+  const [countdownS, setCountdownS] = useState(5)
+  const [counting, setCounting] = useState<number | null>(null)
+  const [autoCapturing, setAutoCapturing] = useState(false)
+  const [targetReached, setTargetReached] = useState(false)
+  const [capturesThisRun, setCapturesThisRun] = useState(0)
+  const autoCapturingRef = useRef(false)
+
+  // Counts shots for one wizard stage. Intrinsics shots are tagged with the
+  // camera the board was held up to -- without that tag, step 1 and step 2
+  // shared one pooled total, so step 2 opened already showing "8 / 8".
+  // Untagged legacy shots count toward no stage.
+  const countStageShots = (
+    list: CalibrationShot[],
+    kind: 'intrinsics' | 'extrinsics',
+    forCamera: string,
+  ) =>
+    list.filter((s) => s.kind === kind && (kind === 'extrinsics' || s.for_camera === forCamera))
+      .length
+
+  // Repeats the countdown -> capture cycle on its own (no re-clicking)
+  // until the shot target is hit or the user hits stop -- the countdown
+  // reappears automatically each time, acting as the "next capture in
+  // 3, 2, 1" cue without any extra text needed.
+  const runCaptureLoop = async (kind: 'intrinsics' | 'extrinsics', forCamera: string) => {
+    while (autoCapturingRef.current) {
+      for (let s = countdownS; s > 0 && autoCapturingRef.current; s--) {
+        setCounting(s)
+        await sleep(1000)
+      }
+      if (!autoCapturingRef.current) break
+      setCounting(0)
+      const updated = await capture(kind, forCamera)
+      setCounting(null)
+      if (!updated) break
+      setCapturesThisRun((n) => n + 1)
+      if (countStageShots(updated, kind, forCamera) >= SHOT_TARGET[kind]) {
+        setTargetReached(true)
+        break
+      }
+      // hold here so the "captured ✓" flash is actually visible -- starting
+      // the next countdown immediately would cover it the same frame it
+      // appeared (the overlay only renders the flash while no countdown is up)
+      await sleep(1500)
+    }
+    autoCapturingRef.current = false
+    setAutoCapturing(false)
+    setCounting(null)
+  }
+
+  const startCapturing = () => {
+    if (autoCapturingRef.current) return
+    setTargetReached(false)
+    setCapturesThisRun(0)
+    autoCapturingRef.current = true
+    setAutoCapturing(true)
+    runCaptureLoop(stage === 'position' ? 'extrinsics' : 'intrinsics', STAGE_INFO[stage].camera)
+  }
+
+  const stopCapturing = () => {
+    autoCapturingRef.current = false
+    setAutoCapturing(false)
+    setCounting(null)
+  }
+
+  const changeStage = (s: Stage) => {
+    stopCapturing()
+    setTargetReached(false) // target state is per-stage, not global
+    setStage(s)
+  }
+
+  const [clearingShots, setClearingShots] = useState(false)
+
+  // Intrinsics shots are pooled across every capture ever taken (not just
+  // this run), so stale captures from before a rig change (e.g. the camera
+  // rotation fix) silently keep feeding compute alongside new ones unless
+  // explicitly wiped.
+  const clearAllShots = async () => {
+    if (!window.confirm('Delete all calibration captures (both cameras and the position shot) and start over?')) {
+      return
+    }
+    stopCapturing()
+    setClearingShots(true)
+    setError(null)
+    try {
+      await api.calibrationShotsClear()
+      await refreshShots()
+      setTargetReached(false)
+      setCapturesThisRun(0)
+    } catch (e) {
+      setError(String(e))
+    } finally {
+      setClearingShots(false)
+    }
+  }
 
   const runCompute = async () => {
     setError(null)
@@ -228,7 +305,7 @@ export default function CalibrationWizard() {
   }
 
   const countFor = (kind: 'intrinsics' | 'extrinsics') =>
-    shots.filter((s) => s.kind === kind).length
+    countStageShots(shots, kind, STAGE_INFO[stage].camera)
   const boardHitsFor = (camera: string) =>
     shots
       .filter((s) => s.kind === 'intrinsics')
@@ -271,10 +348,13 @@ export default function CalibrationWizard() {
 
       <div className="wizard-tabs">
         {(['camera_1', 'camera_2', 'position'] as Stage[]).map((s) => (
-          <button key={s} className={s === stage ? 'active' : ''} onClick={() => setStage(s)}>
+          <button key={s} className={s === stage ? 'active' : ''} onClick={() => changeStage(s)}>
             {STAGE_INFO[s].title.split('—')[0].trim()}
           </button>
         ))}
+        <button className="link-btn clear-shots-btn" onClick={clearAllShots} disabled={clearingShots}>
+          {clearingShots ? 'clearing…' : 'clear all captures and start over'}
+        </button>
       </div>
 
       <div className="panel">
@@ -290,7 +370,14 @@ export default function CalibrationWizard() {
           ) : (
             <LivePreview camera={info_.camera} label={info_.camera} />
           )}
-          {counting !== null && <div className="countdown-big">{counting}</div>}
+          {counting !== null && (
+            <div className="countdown-big">
+              {counting}
+              <div className="countdown-caption">
+                {capturesThisRun === 0 ? 'get ready' : 'next capture in'}
+              </div>
+            </div>
+          )}
           {justCaptured && counting === null && (
             <div className="countdown-big captured-flash">captured ✓</div>
           )}
@@ -304,14 +391,34 @@ export default function CalibrationWizard() {
         </div>
 
         <div className="wizard-actions">
-          <button className="countdown-btn" onClick={startCountdown} disabled={counting !== null}>
-            {counting !== null ? `capturing in ${counting}…` : 'capture (10s countdown)'}
-          </button>
+          <select
+            value={countdownS}
+            onChange={(e) => setCountdownS(Number(e.target.value))}
+            disabled={autoCapturing}
+            aria-label="countdown length"
+          >
+            {COUNTDOWN_OPTIONS.map((s) => (
+              <option key={s} value={s}>
+                {s}s countdown
+              </option>
+            ))}
+          </select>
+          {autoCapturing ? (
+            <button className="countdown-btn" onClick={stopCapturing}>
+              stop capturing
+            </button>
+          ) : (
+            <button className="countdown-btn" onClick={startCapturing}>
+              start capturing
+            </button>
+          )}
           {stage !== 'position' && (
             <span className="muted">
-              {countFor('intrinsics') > 0
-                ? `board detected in ${boardHitsFor(info_.camera)} sampled frames across ${countFor('intrinsics')} capture(s) so far (need several with the board clearly visible)`
-                : 'no captures yet — aim for at least 3-4 with the board clearly in frame'}
+              {targetReached
+                ? `target reached (${countFor('intrinsics')} / ${SHOT_TARGET.intrinsics}) — move to the next step, or start capturing again for a few more`
+                : countFor('intrinsics') > 0
+                  ? `board detected in ${boardHitsFor(info_.camera)} sampled frames across ${countFor('intrinsics')} capture(s) so far (need several with the board clearly visible)`
+                  : 'no captures yet — aim for at least 3-4 with the board clearly in frame'}
             </span>
           )}
           {stage === 'position' && (

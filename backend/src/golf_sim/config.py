@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_CONFIG_PATH = REPO_ROOT / "config" / "config.yaml"
@@ -86,6 +86,24 @@ class ApiConfig(BaseModel):
     port: int
 
 
+class SystemRequirementsConfig(BaseModel):
+    # Below "minimum" is flagged as likely too slow/unreliable for capture +
+    # pose processing; below "recommended" still works but may be sluggish.
+    min_cpu_cores: int = 4
+    recommended_cpu_cores: int = 8
+    min_ram_gb: float = 8.0
+    recommended_ram_gb: float = 16.0
+    min_free_disk_gb: float = 5.0
+    # Golf swings are fast -- a camera that can't sustain these gets motion
+    # blur or drops the critical impact frame entirely.
+    min_camera_width: int = 1280
+    min_camera_height: int = 720
+    min_camera_fps: float = 30.0
+    # "close other applications" warning thresholds for current system load.
+    high_cpu_load_pct: float = 70.0
+    high_ram_used_pct: float = 80.0
+
+
 class Config(BaseModel):
     audio_trigger: AudioTriggerConfig
     cameras: CamerasConfig
@@ -96,6 +114,7 @@ class Config(BaseModel):
     processing: ProcessingConfig
     storage: StorageConfig
     api: ApiConfig
+    system_requirements: SystemRequirementsConfig = Field(default_factory=SystemRequirementsConfig)
 
 
 def load_config(path: Path | str = DEFAULT_CONFIG_PATH) -> Config:

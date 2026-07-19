@@ -30,7 +30,18 @@ Two cameras, both with a full view of the golfer (head to feet, plus club-length
 This ~90° pair gives true triangulated depth (spec.md FR11a). Mount both cameras rigidly —
 **any camera movement after calibration invalidates the calibration.**
 
+If a camera is physically mounted sideways or upside down, set its rotation in the
+**settings** tab (or `rotation_deg` in config.yaml: 0/90/180/270). This corrects the actual
+captured footage, not just the preview — the pose model expects upright people, so a
+sideways camera silently wrecks tracking accuracy. Check the live preview per camera in
+settings to confirm the orientation looks right, and save + disarm/arm to apply.
+
 Laptop/mic near the hitting area; the impact sound is the trigger.
+
+Before a first real session, run the **system check** tab: it verifies the PC's specs
+(CPU/RAM/disk, plus current load — close other apps if it warns) and probes each camera for
+the resolution and *measured* frame rate it actually delivers (disarm capture first; the
+probe needs exclusive camera access).
 
 ## 3. Pick devices
 
@@ -65,27 +76,33 @@ the hitting position). Put the suggested value in `audio_trigger.threshold_db`.
 
 ## 5. Calibrate the camera rig
 
-Done in-app via the **calibrate** tab — no separate capture tool needed, since the rig
-cameras are already held open by the running backend.
+Done entirely in-app via the **calibrate** tab — the wizard walks through every step,
+including printing the board.
 
-1. Print `data/calibration_board_A4.png` (or generate your own) at **100% scale — not
-   "fit to page"**. Measure one square with a ruler; the printed size rarely matches the
-   nominal one exactly, and a wrong size silently scales all 3D output. Enter the measured
-   size in `calibration.checkerboard_square_size_mm` in config.yaml (corner count in
-   `calibration.checkerboard_corners`, default 4×7). Tape the board to something rigid.
-2. Measure the straight-line distance between the two cameras in metres — you'll enter this
-   in the wizard to anchor real-world scale.
-3. Open the app → **calibrate** tab. For **Step 1** and **Step 2** (one per camera): hold the
-   board about arm's length from that camera in view of the live preview, click **capture (10s
-   countdown)**, and move/tilt the board to a new position before each capture. Aim for at
-   least 4-6 captures per camera with the board clearly, fully visible in the preview.
-4. For **Step 3**: stand at your normal hitting position, fully visible to *both* camera
-   previews at once, click capture, and do a slow practice swing (no club needed) during the
-   countdown + recording so your body sweeps through the shared view volume.
-5. Enter the camera-to-camera distance and click **compute calibration**. Watch for the
-   reprojection error in the result (well under 5px is good) and the estimated-height sanity
-   figure (should be roughly your real height) — if either looks wrong, recapture Step 3 with
-   more of your body visible in both views and try again.
+1. **Step 0a:** the wizard shows a printable checkerboard (generated to match the configured
+   corner count). Print it at **100% scale — not "fit to page"**, tape it to something rigid,
+   measure one square with a ruler (across several squares and divide, for accuracy), and
+   enter the measured size in the wizard. The printed size rarely matches the nominal one
+   exactly, and a wrong size silently scales all 3D output.
+2. **Step 0b:** measure the straight-line distance between the two cameras' **lenses** (same
+   reference point on each) in metres and enter it — this anchors real-world scale.
+3. **Step 1 / Step 2** (one per camera): pick a countdown length, hold the board about arm's
+   length from that camera in view of the live preview, and hit **start capturing**. The
+   wizard then repeats countdown → capture on its own — move/tilt the board to a new position
+   during each countdown (a big on-preview countdown and an "X / 8 captures" badge are
+   readable from across the room). It stops itself at the target count, or hit **stop
+   capturing** any time.
+4. **Step 3:** stand at your normal hitting position, fully visible to *both* camera
+   previews at once, start capturing, and do a slow practice swing (no club needed) during
+   the recording so your body sweeps through the shared view volume.
+5. Click **compute calibration**. Watch for the reprojection error in the result (well under
+   5px is good) and the estimated-height sanity figure (should be roughly your real height) —
+   if either looks wrong, recapture Step 3 with more of your body visible in both views and
+   try again.
+
+Starting over (e.g. after moving a camera): use **clear all captures and start over** in the
+wizard first — old captures are pooled into the computation and would silently pollute a
+fresh attempt.
 
 Recalibrate whenever a camera moves. The app flags calibration older than
 `calibration.max_age_days` (shown at the top of the calibrate tab and via

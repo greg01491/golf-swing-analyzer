@@ -6,6 +6,7 @@ Calib_rig.toml."""
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 from golf_sim.config import REPO_ROOT, Config
@@ -20,15 +21,30 @@ from golf_sim.pose.rig_calibration import (
 MARKER = "calibration_shot.json"
 
 
-def mark_calibration_shot(session_dir: Path, kind: str, config: Config) -> dict:
+def mark_calibration_shot(
+    session_dir: Path, kind: str, config: Config, for_camera: str | None = None
+) -> dict:
     """Tag a captured session as a wizard shot; for intrinsics shots, run
-    board detection per camera so the UI can give immediate feedback."""
+    board detection per camera so the UI can give immediate feedback.
+
+    for_camera records which camera the user was holding the board up to
+    (the wizard's step 1 vs step 2) -- purely for per-stage progress
+    counting in the UI. Without it, both steps counted the same pooled
+    intrinsics total, so step 2 started at "8 / 8" after step 1's captures.
+    The compute step deliberately still pools every shot regardless: each
+    capture records both cameras, and board detection sorts out which
+    camera actually saw the board."""
     corners = tuple(config.calibration.checkerboard_corners)
     board_counts = {}
     if kind == "intrinsics":
         for clip in sorted(Path(session_dir).glob("camera_*.mp4")):
             board_counts[clip.stem] = count_board_in_clip(clip, corners)
-    marker = {"kind": kind, "board_frames_detected": board_counts, "samples_checked": 6}
+    marker = {
+        "kind": kind,
+        "for_camera": for_camera,
+        "board_frames_detected": board_counts,
+        "samples_checked": 6,
+    }
     (Path(session_dir) / MARKER).write_text(json.dumps(marker, indent=2))
     return marker
 
@@ -51,11 +67,26 @@ def list_calibration_shots(data_dir: Path) -> list[dict]:
             {
                 "id": session_dir.name,
                 "kind": marker.get("kind"),
+                "for_camera": marker.get("for_camera"),
                 "created_at": meta.get("created_at"),
                 "board_frames_detected": marker.get("board_frames_detected", {}),
             }
         )
     return shots
+
+
+def clear_calibration_shots(data_dir: Path) -> int:
+    """Deletes every wizard-captured session (both kinds) so a fresh
+    calibration attempt starts from nothing -- otherwise stale captures from
+    before a rig change (e.g. a camera rotation fix) silently keep feeding
+    compute_rig_calibration alongside new ones, since intrinsics shots are
+    pooled across every capture ever taken, not just the latest run."""
+    deleted = 0
+    for shot in list_calibration_shots(data_dir):
+        session_dir = Path(data_dir) / "sessions" / shot["id"]
+        shutil.rmtree(session_dir, ignore_errors=True)
+        deleted += 1
+    return deleted
 
 
 def compute_rig_calibration(

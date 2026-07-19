@@ -110,3 +110,22 @@ storage:
 api:
   host: 127.0.0.1
   port: 8765
+
+system_requirements:
+  # Below "minimum" is flagged red in the system check -- capture/processing
+  # will likely be too slow or unreliable. Below "recommended" still works
+  # but may be sluggish under load.
+  min_cpu_cores: 4
+  recommended_cpu_cores: 8
+  min_ram_gb: 8
+  recommended_ram_gb: 16
+  min_free_disk_gb: 5
+  # Golf swings are fast -- a camera that can't sustain these gets motion
+  # blur or drops the critical impact frame entirely.
+  min_camera_width: 1280
+  min_camera_height: 720
+  min_camera_fps: 30
+  # "close other applications" warning thresholds for current system load,
+  # checked live (not just static hardware specs).
+  high_cpu_load_pct: 70
+  high_ram_used_pct: 80

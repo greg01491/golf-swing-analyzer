@@ -14,6 +14,14 @@ dependencies = [
     "pydantic>=2.6",
     "fastapi>=0.110",
     "uvicorn[standard]>=0.29",
+    # PC spec check (CPU/RAM) -- diagnostics/system_check.py
+    "psutil>=5.9",
+    # Bundled ffmpeg binary for H.264 transcoding (capture/transcode.py).
+    # OpenCV can only write mp4v (MPEG-4 Part 2), which Chromium/Electron
+    # cannot decode -- clips played as a black frame in the UI until
+    # transcoded. opencv-python has no H.264 encoder (needs a separately
+    # downloaded OpenH264 DLL), so a bundled ffmpeg is the reliable path.
+    "imageio-ffmpeg>=0.4",
 ]
 
 [project.optional-dependencies]

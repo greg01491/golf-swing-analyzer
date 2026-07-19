@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 import yaml
@@ -114,6 +115,29 @@ def test_video_serving_and_traversal_guard(client, config):
     assert bad.status_code == 404
 
 
+def test_overlay_video_serving_and_detail_flag(client, config):
+    session_dir = _fake_session(config)
+
+    # no overlay produced yet -> 404 and no overlay_cameras in detail
+    detail = client.get("/api/sessions/20260101T000000Z-test0001").json()
+    assert detail["overlay_cameras"] == []
+    missing = client.get("/api/sessions/20260101T000000Z-test0001/video/camera_1?overlay=true")
+    assert missing.status_code == 404
+
+    pose_dir = session_dir / "pose2sim" / "pose"
+    pose_dir.mkdir(parents=True)
+    (pose_dir / "camera_1_pose.mp4").write_bytes(b"overlay")
+
+    detail = client.get("/api/sessions/20260101T000000Z-test0001").json()
+    assert detail["overlay_cameras"] == ["camera_1"]
+    ok = client.get("/api/sessions/20260101T000000Z-test0001/video/camera_1?overlay=true")
+    assert ok.status_code == 200
+    assert ok.content == b"overlay"
+    # raw clip still served without the flag
+    raw = client.get("/api/sessions/20260101T000000Z-test0001/video/camera_1")
+    assert raw.content == b"fake"
+
+
 def test_config_roundtrip_and_validation(client, tmp_path):
     current = client.get("/api/config").json()
     assert "audio_trigger" in current
@@ -210,20 +234,50 @@ def test_config_put_updates_live_runtime_and_disarm_fully_stops_capture(client):
 
 def test_calibration_shot_capture_and_listing(client, processor):
     client.post("/api/capture/arm")
-    shot = client.post("/api/calibration/shot", json={"kind": "intrinsics"}).json()
-    assert set(shot) >= {"id", "kind", "board_frames_detected"}
+    shot = client.post(
+        "/api/calibration/shot", json={"kind": "intrinsics", "camera": "camera_1"}
+    ).json()
+    assert set(shot) >= {"id", "kind", "for_camera", "board_frames_detected"}
     assert shot["kind"] == "intrinsics"
+    assert shot["for_camera"] == "camera_1"
     # synthetic frames contain no checkerboard
     assert all(v == 0 for v in shot["board_frames_detected"].values())
 
     shots = client.get("/api/calibration/shots").json()
     assert [s["id"] for s in shots] == [shot["id"]]
+    # the stage tag survives the round-trip to disk -- the wizard's per-step
+    # "X / N" counter depends on it (steps 1 and 2 used to share one pooled
+    # count, so step 2 opened already claiming all of step 1's captures)
+    assert shots[0]["for_camera"] == "camera_1"
 
     # calibration shots stay out of the swing list and never auto-process
     assert client.get("/api/sessions").json() == []
     assert processor.calls == []
 
     assert client.post("/api/calibration/shot", json={"kind": "bogus"}).status_code == 422
+    assert (
+        client.post(
+            "/api/calibration/shot", json={"kind": "intrinsics", "camera": "camera_9"}
+        ).status_code
+        == 422
+    )
+
+
+def test_calibration_shots_clear_removes_all_captures(client, config):
+    client.post("/api/capture/arm")
+    client.post("/api/calibration/shot", json={"kind": "intrinsics"})
+    client.post("/api/calibration/shot", json={"kind": "extrinsics"})
+    assert len(client.get("/api/calibration/shots").json()) == 2
+
+    response = client.delete("/api/calibration/shots")
+    assert response.status_code == 200
+    assert response.json() == {"deleted": 2}
+    assert client.get("/api/calibration/shots").json() == []
+
+    # the underlying session directories are actually gone, not just
+    # unmarked, so stale footage doesn't linger on disk either
+    sessions_dir = Path(config.storage.data_dir) / "sessions"
+    assert list(sessions_dir.iterdir()) == []
 
 
 def test_calibration_board_image_matches_configured_corners(client, config):
@@ -238,6 +292,22 @@ def test_calibration_board_image_matches_configured_corners(client, config):
     corners = tuple(config.calibration.checkerboard_corners)
     found, _ = cv2.findChessboardCorners(array, corners)
     assert found
+
+
+def test_diagnostics_system_check(client):
+    response = client.get("/api/diagnostics/system")
+    assert response.status_code == 200
+    body = response.json()
+    assert set(body) >= {"cpu_cores", "ram_gb", "free_disk_gb", "meets_minimum", "warnings"}
+    assert body["cpu_cores"] > 0
+
+
+def test_diagnostics_cameras_requires_disarmed(client):
+    # the real camera-capability check needs exclusive access to the
+    # hardware, so it must refuse to run while capture holds it open
+    client.post("/api/capture/arm")
+    response = client.get("/api/diagnostics/cameras")
+    assert response.status_code == 409
 
 
 def test_calibration_info_and_compute_guardrails(client):

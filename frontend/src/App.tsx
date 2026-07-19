@@ -5,9 +5,10 @@ import ArmControl from './components/ArmControl'
 import CalibrationWizard from './components/CalibrationWizard'
 import SessionView from './components/SessionView'
 import Settings from './components/Settings'
+import SystemCheck from './components/SystemCheck'
 import './App.css'
 
-type View = 'sessions' | 'settings' | 'calibrate'
+type View = 'sessions' | 'settings' | 'calibrate' | 'system-check'
 
 export default function App() {
   const [sessions, setSessions] = useState<SessionSummary[]>([])
@@ -40,6 +41,12 @@ export default function App() {
           <button className={view === 'calibrate' ? 'active' : ''} onClick={() => setView('calibrate')}>
             calibrate
           </button>
+          <button
+            className={view === 'system-check' ? 'active' : ''}
+            onClick={() => setView('system-check')}
+          >
+            system check
+          </button>
           <button className={view === 'settings' ? 'active' : ''} onClick={() => setView('settings')}>
             settings
           </button>
@@ -54,6 +61,7 @@ export default function App() {
 
       {view === 'settings' && <Settings />}
       {view === 'calibrate' && <CalibrationWizard />}
+      {view === 'system-check' && <SystemCheck />}
       {view === 'sessions' && (
         <div className="main">
           <aside>

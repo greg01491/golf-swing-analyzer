@@ -31,7 +31,24 @@ def trc_files(project_dir: Path) -> list[Path]:
     return sorted(pose3d.glob("*.trc")) if pose3d.is_dir() else []
 
 
+def _force_headless_matplotlib() -> None:
+    """Must run before importing Pose2Sim (it imports matplotlib.pyplot at
+    module load time). Pose2Sim's filtering stage calls plt.figure() even
+    with display_figures=False below, and the default interactive backend
+    (Tk on Windows) hangs the entire process -- not just this thread --
+    when created outside the main thread, which is exactly how processing
+    runs here (a background thread per session, see api/server.py). Found
+    live: a real capture froze the whole API (every endpoint, not just this
+    session) right after "Starting a Matplotlib GUI outside of the main
+    thread will likely fail". Agg is headless and never touches a GUI
+    toolkit, so this is safe regardless of import order or thread."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+
+
 def run_reconstruction(session_dir: Path, config: Config) -> ReconstructionResult:
+    _force_headless_matplotlib()
     from Pose2Sim import Pose2Sim
 
     project_dir = Path(session_dir) / "pose2sim"
