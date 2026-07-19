@@ -32,6 +32,13 @@ export interface PPosition {
   ideal_frame: Record<string, [number, number, number]>
 }
 
+export interface TrackingQuality {
+  moving_fraction: number
+  hand_vertical_range_m: number
+  reliable: boolean
+  warnings: string[]
+}
+
 export interface SessionDetail {
   id: string
   metadata: Record<string, unknown>
@@ -41,6 +48,7 @@ export interface SessionDetail {
   overlay_cameras?: string[]
   metrics: {
     phases?: { address_frame: number; top_frame: number; impact_frame: number }
+    tracking_quality?: TrackingQuality
     metrics: MetricEntry[]
     tips: TipEntry[]
     p_positions?: PPosition[]

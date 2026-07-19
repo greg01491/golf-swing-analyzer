@@ -80,6 +80,7 @@ export default function SessionView({ sessionId }: { sessionId: string }) {
   if (!detail) return <div className="panel">loading…</div>
 
   const metrics = detail.metrics
+  const quality = metrics?.tracking_quality
   const createdAt = detail.metadata?.created_at as string | undefined
   const when = createdAt ? new Date(createdAt) : null
 
@@ -90,6 +91,23 @@ export default function SessionView({ sessionId }: { sessionId: string }) {
           ? `${when.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' })} at ${when.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`
           : sessionId}
       </h2>
+
+      {quality && !quality.reliable && (
+        <div className="panel quality-warning">
+          <strong>⚠ Low tracking quality — metrics and positions below may be unreliable.</strong>
+          <ul>
+            {quality.warnings.map((w) => (
+              <li key={w}>{w}</li>
+            ))}
+          </ul>
+          <p className="muted">
+            The video and skeleton are still shown, but the swing couldn't be reconstructed cleanly
+            in 3D. This is usually a calibration or camera-framing issue — make sure your whole body
+            stays in <em>both</em> camera views through the swing, and that the rig calibration is
+            current.
+          </p>
+        </div>
+      )}
 
       <div className="playback-row">
         <div className="panel">

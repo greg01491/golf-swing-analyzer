@@ -15,6 +15,7 @@ from pathlib import Path
 from golf_sim.analysis.ideal_pose import build_all_ideal_frames
 from golf_sim.analysis.metrics import compute_metrics
 from golf_sim.analysis.p_positions import detect_p_positions
+from golf_sim.analysis.quality import assess_tracking_quality
 from golf_sim.analysis.tips import generate_tips, tips_to_dicts
 from golf_sim.config import REPO_ROOT, load_config
 from golf_sim.trc import read_trc
@@ -64,6 +65,9 @@ def analyze_session(session_dir: Path, config) -> Path:
     out_path = session_dir / "metrics.json"
     payload = {
         "source_trc": trc_path.name,
+        # quality first so the UI can caveat everything below it when the
+        # reconstruction is too poor to trust (see analysis.quality)
+        "tracking_quality": assess_tracking_quality(seq).to_dict(),
         **report.to_dict(),
         "tips": tips_to_dicts(tips),
         "p_positions": _p_positions_payload(seq, report, config),

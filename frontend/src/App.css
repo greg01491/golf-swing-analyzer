@@ -247,6 +247,19 @@ ol li {
   background: #450a0a;
 }
 
+.quality-warning {
+  border: 1px solid #b45309;
+  background: #3a2a08;
+}
+
+.quality-warning strong {
+  color: #fbbf24;
+}
+
+.quality-warning ul {
+  margin: 8px 0;
+}
+
 .arm-control {
   display: flex;
   align-items: center;
