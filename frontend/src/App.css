@@ -186,6 +186,17 @@ video {
   max-width: 100%;
 }
 
+.figure-mode {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.figure-mode button {
+  padding: 4px 12px;
+  font-size: 13px;
+}
+
 .azimuth {
   display: flex;
   align-items: center;

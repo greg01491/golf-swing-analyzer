@@ -31,24 +31,45 @@ def trc_files(project_dir: Path) -> list[Path]:
     return sorted(pose3d.glob("*.trc")) if pose3d.is_dir() else []
 
 
-def _force_headless_matplotlib() -> None:
-    """Must run before importing Pose2Sim (it imports matplotlib.pyplot at
-    module load time). Pose2Sim's filtering stage calls plt.figure() even
-    with display_figures=False below, and the default interactive backend
-    (Tk on Windows) hangs the entire process -- not just this thread --
-    when created outside the main thread, which is exactly how processing
-    runs here (a background thread per session, see api/server.py). Found
-    live: a real capture froze the whole API (every endpoint, not just this
-    session) right after "Starting a Matplotlib GUI outside of the main
-    thread will likely fail". Agg is headless and never touches a GUI
-    toolkit, so this is safe regardless of import order or thread."""
+_headless_ready = False
+
+
+def preload_headless_pose_stack() -> None:
+    """Neutralize a Pose2Sim import-time deadlock, once.
+
+    `Pose2Sim/filtering.py` forces the interactive **qtagg** matplotlib
+    backend and creates a figure at *module import* time. On Windows that
+    figure creation hangs forever the first time it runs on a worker thread
+    (Qt GUI objects must be built on the main thread) -- and processing runs
+    on a per-session worker thread, so a real capture froze the entire API
+    mid-`Filtering 3D coordinates`, every endpoint included. Their own
+    try/except fallback to Agg never fires because the call *hangs* rather
+    than raising.
+
+    Just calling `matplotlib.use("Agg")` first doesn't help: their explicit
+    `mpl.use('qtagg')` overrides it. The reliable fix is to import that
+    module **once on the main thread** (where the figure call returns in
+    ~2s instead of hanging), then force Agg back so every later figure op is
+    headless. Idempotent; safe to call from any thread once it has completed
+    on the main thread (call it at server startup -- see api.server).
+    """
+    global _headless_ready
+    if _headless_ready:
+        return
     import matplotlib
 
     matplotlib.use("Agg")
+    import Pose2Sim.filtering  # noqa: F401  -- imported for its module-level side effect
+
+    matplotlib.use("Agg", force=True)
+    _headless_ready = True
 
 
 def run_reconstruction(session_dir: Path, config: Config) -> ReconstructionResult:
-    _force_headless_matplotlib()
+    # Idempotent: a no-op when the server already ran it on the main thread at
+    # startup; does the real (main-thread) work when reconstruction is driven
+    # directly from the CLI or tests.
+    preload_headless_pose_stack()
     from Pose2Sim import Pose2Sim
 
     project_dir = Path(session_dir) / "pose2sim"

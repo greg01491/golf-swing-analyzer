@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 from pathlib import Path
 
@@ -22,6 +23,8 @@ from golf_sim.api.sessions import (
     session_landmarks,
 )
 from golf_sim.config import DEFAULT_CONFIG_PATH, REPO_ROOT, Config, load_config
+
+logger = logging.getLogger(__name__)
 
 
 def _deep_update(target, source: dict) -> None:
@@ -339,6 +342,21 @@ def main() -> None:
     import uvicorn
 
     config = load_config()
+
+    # Pose2Sim's filtering module deadlocks if its qtagg/plt.figure() probe
+    # first runs on a worker thread (which is how background processing runs).
+    # Run it here, on the main thread, before serving -- otherwise the first
+    # auto-processed capture hangs the whole server. Skipped cleanly if the
+    # pose extra isn't installed (capture-only deployments) or auto-process
+    # is off; run_reconstruction preloads it itself in that case.
+    if config.processing.auto_process:
+        try:
+            from golf_sim.pose.reconstruct import preload_headless_pose_stack
+
+            preload_headless_pose_stack()
+        except Exception:
+            logger.warning("pose stack preload skipped", exc_info=True)
+
     uvicorn.run(create_app(config), host=config.api.host, port=config.api.port)
 
 

@@ -25,6 +25,12 @@ export default function SessionView({ sessionId }: { sessionId: string }) {
       if (d.cameras.length && !d.cameras.includes(camera)) setCamera(d.cameras[0])
     })
     api.landmarks(sessionId).then(setLandmarks).catch(() => setLandmarks(null))
+    // reflect any in-progress/failed auto-processing kicked off at capture,
+    // so the panel shows "processing…" or the error rather than a stale
+    // "process swing" button (the video itself plays regardless)
+    api.processStatus(sessionId).then(({ status }) => {
+      if (status !== 'idle') setProcessState(status)
+    })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId])
 
