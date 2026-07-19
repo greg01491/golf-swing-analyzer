@@ -348,10 +348,60 @@ ol li {
   font-size: 13px;
 }
 
+.board-preview {
+  display: block;
+  max-width: 280px;
+  width: 100%;
+  margin: 10px 0;
+  background: #fff;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+}
+
 .preview-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
+}
+
+.preview-overlay-wrap {
+  position: relative;
+}
+
+.countdown-big {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: clamp(80px, 22vw, 220px);
+  font-weight: 800;
+  line-height: 1;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.6);
+  text-shadow: 0 4px 16px rgba(0, 0, 0, 0.8);
+  border-radius: 6px;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.countdown-big.captured-flash {
+  font-size: clamp(32px, 6vw, 56px);
+  color: var(--accent);
+}
+
+.shot-progress-badge {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+  font-size: 22px;
+  font-weight: 700;
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 2px solid var(--accent);
+  z-index: 1;
 }
 
 .wizard-actions {

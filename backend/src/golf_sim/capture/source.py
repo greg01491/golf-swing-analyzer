@@ -36,15 +36,40 @@ def resolve_camera_index(name: str, device_names: list[str] | None = None) -> in
         raise RuntimeError(f"no camera named {name!r} connected (found: {device_names})") from None
 
 
+_ROTATE_FLAGS = {
+    0: None,
+    90: cv2.ROTATE_90_CLOCKWISE,
+    180: cv2.ROTATE_180,
+    270: cv2.ROTATE_90_COUNTERCLOCKWISE,
+}
+
+
 class OpenCVCameraSource:
-    def __init__(self, index: int, width: int, height: int, fps: float, name: str | None = None):
+    def __init__(
+        self,
+        index: int,
+        width: int,
+        height: int,
+        fps: float,
+        name: str | None = None,
+        rotation_deg: int = 0,
+    ):
         """If name is given it takes precedence over index (see
-        resolve_camera_index for why)."""
+        resolve_camera_index for why). rotation_deg corrects a physically
+        sideways/upside-down mounted camera -- applied to every frame at the
+        source, before it reaches the buffer, saved clips, live preview, or
+        pose estimation, since a sideways person confuses a pose model
+        trained on upright people (not just a cosmetic preview issue)."""
+        if rotation_deg not in _ROTATE_FLAGS:
+            raise ValueError(
+                f"rotation_deg must be one of {sorted(_ROTATE_FLAGS)}, got {rotation_deg}"
+            )
         self.index = index
         self.name = name
         self.width = width
         self.height = height
         self.fps = fps
+        self.rotation_deg = rotation_deg
         self._cap: cv2.VideoCapture | None = None
 
     def open(self) -> None:
@@ -62,6 +87,9 @@ class OpenCVCameraSource:
         ok, image = self._cap.read()
         if not ok:
             return None
+        flag = _ROTATE_FLAGS[self.rotation_deg]
+        if flag is not None:
+            image = cv2.rotate(image, flag)
         return Frame(timestamp=time.monotonic(), image=image)
 
     def close(self) -> None:

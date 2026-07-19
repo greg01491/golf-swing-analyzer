@@ -31,6 +31,11 @@ class CameraDeviceConfig(BaseModel):
     # DirectShow device name; when set, takes precedence over id because
     # Windows camera indices are not stable across processes.
     name: str | None = None
+    # Corrects a physically sideways/upside-down mounted camera. Applied to
+    # every frame at capture time (not just the live preview) since a
+    # rotated person confuses the pose model, which is trained on upright
+    # people -- this is an accuracy fix, not a cosmetic one.
+    rotation_deg: Literal[0, 90, 180, 270] = 0
 
 
 class CamerasConfig(BaseModel):

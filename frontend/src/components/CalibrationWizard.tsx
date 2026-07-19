@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import type { CalibrationComputeStatus, CalibrationInfo, CalibrationShot } from '../api'
+import LivePreview from './LivePreview'
 
 type Stage = 'camera_1' | 'camera_2' | 'position'
 
@@ -25,37 +26,12 @@ const STAGE_INFO: Record<Stage, { title: string; instructions: string; camera: s
   },
 }
 
-function LivePreview({ camera, label }: { camera: string; label: string }) {
-  const [tick, setTick] = useState(0)
-  const [failed, setFailed] = useState(false)
-  useEffect(() => {
-    const id = setInterval(() => setTick((t) => t + 1), 400)
-    return () => clearInterval(id)
-  }, [])
-  return (
-    <div className="preview-box">
-      <div className="preview-label">{label}</div>
-      {failed ? (
-        <div className="preview-placeholder">no signal — is capture armed?</div>
-      ) : (
-        <img
-          src={`${api.previewUrl(camera)}?t=${tick}`}
-          onError={() => setFailed(true)}
-          onLoad={() => setFailed(false)}
-          alt={`${label} live preview`}
-        />
-      )}
-    </div>
-  )
-}
+// Target shot counts shown as a big "X / N" readout -- not a hard cap, just
+// a rough goal so someone stood across the room from the laptop knows
+// roughly when to stop posing instead of guessing.
+const SHOT_TARGET = { intrinsics: 8, extrinsics: 1 } as const
 
-function ShotCountdown({
-  onCapture,
-  disabled,
-}: {
-  onCapture: () => void
-  disabled: boolean
-}) {
+function useCaptureCountdown(onDone: () => void) {
   const [counting, setCounting] = useState<number | null>(null)
   const timerRef = useRef<number | null>(null)
 
@@ -67,7 +43,7 @@ function ShotCountdown({
   useEffect(() => {
     if (counting === null) return
     if (counting === 0) {
-      onCapture()
+      onDone()
       setCounting(null)
       return
     }
@@ -78,31 +54,82 @@ function ShotCountdown({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [counting])
 
-  return (
-    <button className="countdown-btn" onClick={start} disabled={disabled || counting !== null}>
-      {counting !== null ? `capturing in ${counting}…` : 'capture (10s countdown)'}
-    </button>
-  )
+  return { counting, start }
 }
 
-function DistanceGate({
-  onConfirm,
-}: {
-  onConfirm: (distanceM: number) => void
-}) {
-  const [value, setValue] = useState('')
-  const [touched, setTouched] = useState(false)
+/* eslint-disable @typescript-eslint/no-explicit-any */
+function SetupGate({ onConfirm }: { onConfirm: (distanceM: number) => void }) {
+  const [config, setConfig] = useState<Record<string, any> | null>(null)
+  const [squareSize, setSquareSize] = useState('')
+  const [distance, setDistance] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  const parsed = Number(value)
-  const valid = Number.isFinite(parsed) && parsed > 0
+  useEffect(() => {
+    api.config().then((c) => {
+      setConfig(c)
+      const current = (c as any).calibration?.checkerboard_square_size_mm
+      if (current) setSquareSize(String(current))
+    })
+  }, [])
+
+  const squareSizeNum = Number(squareSize)
+  const distanceNum = Number(distance)
+  const squareSizeValid = Number.isFinite(squareSizeNum) && squareSizeNum > 0
+  const distanceValid = Number.isFinite(distanceNum) && distanceNum > 0
+
+  const confirm = async () => {
+    setError(null)
+    if (!config) return
+    setSaving(true)
+    try {
+      await api.saveConfig({
+        ...config,
+        calibration: { ...config.calibration, checkerboard_square_size_mm: squareSizeNum },
+      })
+      onConfirm(distanceNum)
+    } catch (e) {
+      setError(String(e))
+    } finally {
+      setSaving(false)
+    }
+  }
 
   return (
     <div className="wizard">
       <h2>Camera calibration</h2>
+
       <div className="panel">
-        <h3>Step 0 — measure the distance between your cameras</h3>
+        <h3>Step 0a — print the calibration board</h3>
         <p>
-          Before anything else, measure the straight-line distance between the two cameras'
+          Print this checkerboard at <strong>100% scale</strong> (not "fit to page"), then
+          measure one square with a ruler — across several squares and divide, for accuracy —
+          and enter the measured size below. Printers rarely reproduce exact scale, so the
+          measured size matters more than the nominal one printed on the page.
+        </p>
+        {config ? (
+          <img
+            src={api.calibrationBoardUrl()}
+            alt="printable calibration checkerboard"
+            className="board-preview"
+          />
+        ) : (
+          <p className="muted">loading board…</p>
+        )}
+        <label className="field">
+          measured square size (mm)
+          <input
+            value={squareSize}
+            onChange={(e) => setSquareSize(e.target.value)}
+            placeholder="e.g. 28.4"
+          />
+        </label>
+      </div>
+
+      <div className="panel">
+        <h3>Step 0b — measure the distance between your cameras</h3>
+        <p>
+          Measure the straight-line distance between the two cameras'
           <strong> lenses</strong> — not the camera bodies, mounts, or tripods. Use the{' '}
           <strong>same reference point on each lens</strong> (e.g. the centre of the front
           glass on both) — measuring from a different point on each camera introduces an
@@ -117,19 +144,22 @@ function DistanceGate({
         <label className="field">
           distance between the two camera lenses (metres)
           <input
-            value={value}
-            onChange={(e) => {
-              setValue(e.target.value)
-              setTouched(true)
-            }}
+            value={distance}
+            onChange={(e) => setDistance(e.target.value)}
             placeholder="e.g. 2.5"
           />
         </label>
-        {touched && !valid && <p className="error">enter a distance greater than 0</p>}
-        <button disabled={!valid} onClick={() => onConfirm(parsed)}>
-          confirm distance and continue
-        </button>
       </div>
+
+      {squareSize && !squareSizeValid && <p className="error">enter a square size greater than 0</p>}
+      {distance && !distanceValid && <p className="error">enter a distance greater than 0</p>}
+      <button
+        disabled={!squareSizeValid || !distanceValid || !config || saving}
+        onClick={confirm}
+      >
+        {saving ? 'saving…' : 'confirm and continue'}
+      </button>
+      {error && <p className="error">{error}</p>}
     </div>
   )
 }
@@ -163,15 +193,25 @@ export default function CalibrationWizard() {
     return () => clearInterval(id)
   }, [compute?.state])
 
+  const [justCaptured, setJustCaptured] = useState(false)
+
   const capture = async (kind: 'intrinsics' | 'extrinsics') => {
     setError(null)
     try {
       await api.calibrationShot(kind)
       await refreshShots()
+      // confirms a shot actually landed -- from across the room you can't
+      // see the small status text change, so flash something unmissable
+      setJustCaptured(true)
+      setTimeout(() => setJustCaptured(false), 1500)
     } catch (e) {
       setError(String(e))
     }
   }
+
+  const { counting, start: startCountdown } = useCaptureCountdown(() =>
+    capture(stage === 'position' ? 'extrinsics' : 'intrinsics'),
+  )
 
   const runCompute = async () => {
     setError(null)
@@ -194,11 +234,12 @@ export default function CalibrationWizard() {
       .filter((s) => s.kind === 'intrinsics')
       .reduce((sum, s) => sum + (s.board_frames_detected[camera] ?? 0), 0)
 
-  // Distance must be confirmed before anything else in the wizard is usable —
-  // it's the one external measurement the whole calibration's scale depends on.
+  // Board size + camera distance must be confirmed before anything else in
+  // the wizard is usable -- they're the external measurements the whole
+  // calibration's scale depends on.
   if (distance === null || editingDistance) {
     return (
-      <DistanceGate
+      <SetupGate
         onConfirm={(d) => {
           setDistance(d)
           setEditingDistance(false)
@@ -240,17 +281,32 @@ export default function CalibrationWizard() {
         <h3>{info_.title}</h3>
         <p>{info_.instructions}</p>
 
-        {stage === 'position' ? (
-          <div className="preview-grid">
-            <LivePreview camera="camera_1" label="camera_1 (down-the-line)" />
-            <LivePreview camera="camera_2" label="camera_2 (face-on)" />
+        <div className="preview-overlay-wrap">
+          {stage === 'position' ? (
+            <div className="preview-grid">
+              <LivePreview camera="camera_1" label="camera_1 (down-the-line)" />
+              <LivePreview camera="camera_2" label="camera_2 (face-on)" />
+            </div>
+          ) : (
+            <LivePreview camera={info_.camera} label={info_.camera} />
+          )}
+          {counting !== null && <div className="countdown-big">{counting}</div>}
+          {justCaptured && counting === null && (
+            <div className="countdown-big captured-flash">captured ✓</div>
+          )}
+          <div className="shot-progress-badge">
+            {stage !== 'position'
+              ? `${countFor('intrinsics')} / ${SHOT_TARGET.intrinsics} captures`
+              : countFor('extrinsics') > 0
+                ? `✓ ${countFor('extrinsics')} captured`
+                : `0 / ${SHOT_TARGET.extrinsics} captures`}
           </div>
-        ) : (
-          <LivePreview camera={info_.camera} label={info_.camera} />
-        )}
+        </div>
 
         <div className="wizard-actions">
-          <ShotCountdown onCapture={() => capture(stage === 'position' ? 'extrinsics' : 'intrinsics')} disabled={false} />
+          <button className="countdown-btn" onClick={startCountdown} disabled={counting !== null}>
+            {counting !== null ? `capturing in ${counting}…` : 'capture (10s countdown)'}
+          </button>
           {stage !== 'position' && (
             <span className="muted">
               {countFor('intrinsics') > 0

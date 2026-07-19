@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
+import LivePreview from './LivePreview'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Cfg = Record<string, any>
@@ -95,6 +96,14 @@ export default function Settings() {
 
       <div className="panel">
         <h3>cameras</h3>
+        <p className="muted">
+          If a camera is physically mounted sideways or upside down, use rotation to correct
+          it — this fixes the saved footage itself (not just the preview), since a rotated
+          person confuses the pose-tracking model. The preview below shows the currently
+          <em> running</em> orientation (arm capture first if it shows "no signal"); after
+          changing rotation, save settings and disarm/arm to apply it, then check the preview
+          again.
+        </p>
         {config.cameras.devices.map((dev: Cfg, i: number) => (
           <div key={i} className="camera-config">
             <strong>{dev.role}</strong>
@@ -108,6 +117,19 @@ export default function Settings() {
                 />
               </label>
             ))}
+            <label className="field">
+              rotation
+              <select
+                value={dev.rotation_deg ?? 0}
+                onChange={(e) => setCameraField(i, 'rotation_deg', Number(e.target.value))}
+              >
+                <option value={0}>0°</option>
+                <option value={90}>90° clockwise</option>
+                <option value={180}>180°</option>
+                <option value={270}>270° clockwise (90° counter-clockwise)</option>
+              </select>
+            </label>
+            <LivePreview camera={dev.role} label={`${dev.role} preview`} />
           </div>
         ))}
       </div>

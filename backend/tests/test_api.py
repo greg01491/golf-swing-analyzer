@@ -16,6 +16,11 @@ def config(tmp_path) -> Config:
     raw = yaml.safe_load(load_config().model_dump_json())  # start from real config shape
     raw["storage"]["data_dir"] = str(tmp_path / "data")
     raw["storage"]["db_file"] = str(tmp_path / "data" / "sessions.db")
+    # must be test-isolated too -- this fixture previously read the real
+    # project's config/calibration/ dir, which silently worked only because
+    # that dir happened to be empty; it broke the moment real calibration
+    # data existed there from live rig testing
+    raw["calibration"]["dir"] = str(tmp_path / "calibration")
     raw["audio_trigger"]["pre_capture_delay_s"] = 0.1
     raw["audio_trigger"]["capture_duration_s"] = 0.2
     raw["cameras"]["buffer_margin_s"] = 0.1
@@ -184,6 +189,25 @@ def test_auto_process_off_leaves_session_unprocessed(tmp_path, config, processor
     runtime.stop()
 
 
+def test_config_put_updates_live_runtime_and_disarm_fully_stops_capture(client):
+    # disarm must fully tear down capture (not just stop listening), so a
+    # subsequent arm() rebuilds CaptureService from the just-saved config --
+    # otherwise camera edits (e.g. rotation) are silently ignored until the
+    # whole app is relaunched, despite the API claiming disarm/arm applies them
+    client.post("/api/capture/arm")
+    assert client.get("/api/capture/status").json()["running"] is True
+
+    current = client.get("/api/config").json()
+    current["cameras"]["devices"][1]["rotation_deg"] = 90
+    assert client.put("/api/config", json=current).status_code == 200
+
+    client.post("/api/capture/disarm")
+    assert client.get("/api/capture/status").json()["running"] is False
+
+    client.post("/api/capture/arm")
+    assert client.get("/api/capture/status").json()["running"] is True
+
+
 def test_calibration_shot_capture_and_listing(client, processor):
     client.post("/api/capture/arm")
     shot = client.post("/api/calibration/shot", json={"kind": "intrinsics"}).json()
@@ -200,6 +224,20 @@ def test_calibration_shot_capture_and_listing(client, processor):
     assert processor.calls == []
 
     assert client.post("/api/calibration/shot", json={"kind": "bogus"}).status_code == 422
+
+
+def test_calibration_board_image_matches_configured_corners(client, config):
+    response = client.get("/api/calibration/board.png")
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/png"
+
+    import cv2
+    import numpy as np
+
+    array = cv2.imdecode(np.frombuffer(response.content, np.uint8), cv2.IMREAD_GRAYSCALE)
+    corners = tuple(config.calibration.checkerboard_corners)
+    found, _ = cv2.findChessboardCorners(array, corners)
+    assert found
 
 
 def test_calibration_info_and_compute_guardrails(client):

@@ -160,10 +160,15 @@ def create_app(
     def put_config(new_config: dict):
         # validate before persisting so a bad edit can't brick the app
         try:
-            Config.model_validate(new_config)
+            validated = Config.model_validate(new_config)
         except Exception as exc:
             raise HTTPException(422, f"invalid config: {exc}") from exc
         _write_config_preserving_comments(Path(config_path), new_config)
+        # keep the live runtime's config in sync so disarm/arm (which now
+        # fully tears down and rebuilds CaptureService) actually picks up the
+        # change -- previously this was never updated, so the "disarm/arm to
+        # apply" note below was a lie and only a full app relaunch worked.
+        runtime.config = validated
         return {"status": "saved", "note": "restart capture (disarm/arm) to apply"}
 
     @app.get("/api/capture/preview/{camera}")
@@ -247,6 +252,15 @@ def create_app(
             "age_days": status.age_days,
             "stale": status.stale,
         }
+
+    @app.get("/api/calibration/board.png")
+    def calibration_board():
+        from fastapi.responses import Response
+
+        from golf_sim.pose.board_image import generate_board_png
+
+        png = generate_board_png(tuple(config.calibration.checkerboard_corners))
+        return Response(content=png, media_type="image/png")
 
     @app.get("/api/capture/status")
     def capture_status():

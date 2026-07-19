@@ -132,8 +132,12 @@ class CaptureRuntime:
         self._audio.arm()
 
     def disarm(self) -> None:
-        if self._audio is not None:
-            self._audio.disarm()
+        # Fully tear down (not just stop listening) so a subsequent arm()
+        # rebuilds CaptureService from self.config -- otherwise the
+        # OpenCVCameraSource instances built at the last start() silently
+        # keep stale settings (e.g. camera rotation) until the whole app is
+        # relaunched, even though PUT /api/config claims disarm/arm applies it.
+        self.stop()
 
     def manual_trigger(self) -> None:
         if not self.running:

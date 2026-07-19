@@ -124,6 +124,7 @@ export const api = {
   trigger: () =>
     fetch(`${BASE}/api/capture/trigger`, { method: 'POST' }).then((r) => json<unknown>(r)),
   previewUrl: (camera: string) => `${BASE}/api/capture/preview/${camera}`,
+  calibrationBoardUrl: () => `${BASE}/api/calibration/board.png`,
   calibrationInfo: () =>
     fetch(`${BASE}/api/calibration/info`).then((r) => json<CalibrationInfo>(r)),
   calibrationShots: () =>

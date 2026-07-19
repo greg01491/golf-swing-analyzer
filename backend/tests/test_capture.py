@@ -105,6 +105,23 @@ def _tiny_config(tmp_path) -> Config:
     )
 
 
+def test_camera_meta_swaps_dimensions_for_rotated_camera(tmp_path):
+    config = _tiny_config(tmp_path)
+    config.cameras.devices[0].rotation_deg = 90
+    sources = {
+        dev.role: SyntheticCameraSource(fps=dev.fps, width=dev.width, height=dev.height)
+        for dev in config.cameras.devices
+    }
+    service = CaptureService(config, sources=sources)
+
+    # camera_1 (width=8, height=6) rotated 90 -> saved clip is 6 wide, 8 tall
+    assert service.camera_meta["camera_1"]["width"] == 6
+    assert service.camera_meta["camera_1"]["height"] == 8
+    # camera_2 unrotated -> unchanged
+    assert service.camera_meta["camera_2"]["width"] == 8
+    assert service.camera_meta["camera_2"]["height"] == 6
+
+
 def test_manual_capture_produces_two_synced_clips(tmp_path):
     config = _tiny_config(tmp_path)
     sources = {

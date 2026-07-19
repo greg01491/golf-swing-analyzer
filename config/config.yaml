@@ -11,40 +11,45 @@ audio_trigger:
   # the most reliable bet on Windows.
   device: 14  # Microphone Array (AMD Audio Device), WASAPI -- verified working 2026-07-18
   # RMS/dB trigger threshold. TBD via calibration helper (Phase 2).
-  threshold_db: -20.0
+  threshold_db: -20
   # Seconds of footage to keep *before* the trigger in the saved clip.
-  pre_capture_delay_s: 1.0
+  pre_capture_delay_s: 1
   # Fixed length of the saved clip, counted from (trigger - pre_capture_delay_s).
-  capture_duration_s: 3.0
+  capture_duration_s: 3
   # Ignore re-triggers for this many seconds after a capture starts.
-  trigger_cooldown_s: 5.0
+  trigger_cooldown_s: 5
 
 cameras:
   # Rolling buffer must cover at least capture_duration_s + this margin (not
   # just pre_capture_delay_s): it keeps accumulating post-trigger frames after
   # a trigger fires, so it must retain the whole window until extraction
   # finishes, not just the pre-trigger portion.
-  buffer_margin_s: 1.0
+  buffer_margin_s: 1
   # camera_1 = down-the-line (behind golfer), camera_2 = face-on (side).
   # Selected by DirectShow device NAME, not index -- Windows shuffles camera
   # indices between processes (seen live: a swing recorded from the laptop
   # webcam because the rig camera's index moved). `id` is only the fallback
   # when no name is set. The laptop's own "HP True Vision FHD Camera" is
   # deliberately not used.
+  # rotation_deg corrects a physically sideways/upside-down mounted camera
+  # (0/90/180/270). Applied to every frame at capture time, not just the
+  # preview -- a rotated person confuses the pose model, which expects
+  # upright people, so this matters for real accuracy, not just display.
   devices:
-    - id: 0
-      name: PC Camera
-      role: camera_1
-      width: 1280
-      height: 720
-      fps: 60
-    - id: 2
-      name: HD USB Camera
-      role: camera_2
-      width: 1280
-      height: 720
-      fps: 60
-
+  - id: 0
+    name: PC Camera
+    role: camera_1
+    width: 1280
+    height: 720
+    fps: 60
+    rotation_deg: 0
+  - id: 2
+    name: HD USB Camera
+    role: camera_2
+    width: 1280
+    height: 720
+    fps: 60
+    rotation_deg: 270
 pose:
   # Pose2Sim settings (spec.md §4.3; OQ2 resolved -- RTMPose via Pose2Sim).
   # pose_model 'Body_with_feet' = HALPE_26 keypoints, Pose2Sim's default.
@@ -66,21 +71,23 @@ calibration:
   # Checkerboard used for calibration: inner-corner count [rows, cols] and
   # square size in mm. Matches the generated A4 board
   # (data/calibration_board_A4.png): 5x8 squares of 30mm = 4x7 inner corners.
-  checkerboard_corners: [4, 7]
+  checkerboard_corners:
+  - 4
+  - 7
   checkerboard_square_size_mm: 28.4  # measured on Greg's print with a ruler
 
 metrics:
   # Per-metric reference ranges; edit freely. Units in degrees unless noted.
   # Metrics without a range here are still computed, just never flagged.
   reference_ranges:
-    shoulder_turn_deg: { min: 80, max: 100 }
-    hip_turn_deg: { min: 40, max: 55 }
-    spine_tilt_deg: { min: 25, max: 40 }
-    x_factor_deg: { min: 30, max: 45 }
-    tempo_ratio: { min: 2.8, max: 3.2 }
+    shoulder_turn_deg: {min: 80, max: 100}
+    hip_turn_deg: {min: 40, max: 55}
+    spine_tilt_deg: {min: 25, max: 40}
+    x_factor_deg: {min: 30, max: 45}
+    tempo_ratio: {min: 2.8, max: 3.2}
     # Lateral hip sway as % of stance width, relative to address.
-    hip_sway_top_pct: { min: 0, max: 30 }
-    hip_sway_impact_pct: { min: 0, max: 40 }
+    hip_sway_top_pct: {min: 0, max: 30}
+    hip_sway_impact_pct: {min: 0, max: 40}
 
 analysis:
   # Which arm is "lead" (nearer the target). Body-pose tracking alone can't

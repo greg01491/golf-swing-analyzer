@@ -30,14 +30,24 @@ class CaptureService:
             source = (
                 sources[dev.role]
                 if sources is not None
-                else OpenCVCameraSource(dev.id, dev.width, dev.height, dev.fps, name=dev.name)
+                else OpenCVCameraSource(
+                    dev.id,
+                    dev.width,
+                    dev.height,
+                    dev.fps,
+                    name=dev.name,
+                    rotation_deg=dev.rotation_deg,
+                )
             )
             buffer = RollingBuffer(max_age_s=buffer_age)
             self.streams[dev.role] = CameraStream(dev.role, source, buffer)
+            # a 90/270 rotation swaps the saved frame's actual dimensions --
+            # reflect that here so metadata.json matches the real clip
+            rotated_90 = dev.rotation_deg in (90, 270)
             self.camera_meta[dev.role] = {
                 "camera_id": dev.id,
-                "width": dev.width,
-                "height": dev.height,
+                "width": dev.height if rotated_90 else dev.width,
+                "height": dev.width if rotated_90 else dev.height,
                 "fps": dev.fps,
             }
 
