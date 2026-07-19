@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../api'
 import type { Landmarks, PPosition, SessionDetail } from '../api'
 import PPositionPanel from './PPositionPanel'
-import SkeletonCanvas from './SkeletonCanvas'
+import Skeleton3D from './Skeleton3D'
 
 export default function SessionView({ sessionId }: { sessionId: string }) {
   const [detail, setDetail] = useState<SessionDetail | null>(null)
@@ -145,7 +145,7 @@ export default function SessionView({ sessionId }: { sessionId: string }) {
         <div className="panel">
           <h3>3D skeleton</h3>
           {landmarks ? (
-            <SkeletonCanvas
+            <Skeleton3D
               landmarks={landmarks}
               time={time}
               idealFrame={showIdeal ? selectedPosition?.ideal_frame : null}

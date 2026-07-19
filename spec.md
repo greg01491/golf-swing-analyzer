@@ -77,7 +77,8 @@ Written in EARS-style ("When/If <trigger>, the system shall <response>") where u
 - FR20: The system shall play back a session showing: original video (per-camera tabs) synchronized with the 3D skeleton animation.
 - FR20a: When processing has produced a pose-overlay video (skeleton drawn directly on the golfer's body), the player shall offer it as the default view with a toggle back to the raw clip.
 - FR20b: The playback view shall include the P1–P10 checkpoint strip (seek-and-freeze per position) with a toggle for the ideal-pose ghost overlay (FR16b) on the 3D skeleton.
-- FR20c: The 3D view shall offer a "body" vs "skeleton" render toggle — "body" draws a solid human-like figure (filled torso, tapered limb volumes, head) rather than a bare wireframe.
+- FR20c: The 3D view is a real WebGL (Three.js) scene — a lit, orbit-controllable capsule humanoid (cylindrical limb segments + joint spheres + head) standing on a ground plane — with a "body" vs "skeleton" toggle. Render fidelity is independent of reconstruction quality: a poorly-triangulated swing still renders, just as a distorted figure (flagged by FR20d).
+- FR20d: When reconstruction quality is low (a large share of frames gap-filled, or physically-impossible coordinate ranges), the session view shall show a prominent warning that metrics and positions are unreliable, rather than presenting them as fact. (Backend `analysis/quality.py`; the 2-camera 90° rig's self-occlusion, OQ4, makes this a real and common case.)
 - FR21: The system shall display computed metrics and generated tips alongside playback.
 - FR22: The system shall let the user adjust configuration (trigger sensitivity, delay, duration, camera settings incl. rotation, metric reference ranges) from within the UI. Config saves must preserve the config file's comments.
 

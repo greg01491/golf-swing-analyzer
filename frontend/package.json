@@ -7,7 +7,10 @@
   "build": {
     "appId": "com.gregbrown.golfswinganalyzer",
     "productName": "Golf Swing Analyzer",
-    "files": ["dist/**", "electron/**"],
+    "files": [
+      "dist/**",
+      "electron/**"
+    ],
     "directories": {
       "output": "release"
     },
@@ -28,8 +31,10 @@
     "electron:build": "tsc -b && vite build && electron-builder"
   },
   "dependencies": {
+    "@types/three": "^0.185.1",
     "react": "^19.2.7",
-    "react-dom": "^19.2.7"
+    "react-dom": "^19.2.7",
+    "three": "^0.185.1"
   },
   "devDependencies": {
     "@types/node": "^24.13.2",
