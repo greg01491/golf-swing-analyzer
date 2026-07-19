@@ -90,7 +90,18 @@ def run_reconstruction(session_dir: Path, config: Config) -> ReconstructionResul
             # let Phase 5 pick the swing window instead.
             "frame_range": "all",
         },
-        "filtering": {"display_figures": False},
+        "filtering": {
+            "display_figures": False,
+            # MUST be False: save_filt_plots defaults to True, and that path
+            # builds Pose2Sim's `plotWindow` which directly instantiates a
+            # PySide6 QApplication/QMainWindow (bypassing matplotlib's backend
+            # entirely). Creating Qt GUI objects off the main thread hangs
+            # forever on Windows -- and processing always runs on a worker
+            # thread -- so leaving this True deadlocks the whole backend at
+            # "Filtering 3D trc data" even with a headless matplotlib backend.
+            # We don't surface these per-keypoint debug plots anywhere.
+            "save_filt_plots": False,
+        },
     }
     Pose2Sim.personAssociation(pose2sim_config)
     Pose2Sim.triangulation(pose2sim_config)

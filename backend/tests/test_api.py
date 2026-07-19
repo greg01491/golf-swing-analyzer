@@ -101,6 +101,20 @@ def test_sessions_listing_and_detail(client, config):
     assert detail["metrics"] == {"metrics": [], "tips": []}
 
 
+def test_session_detail_survives_nan_metrics(client, config):
+    # a metric derived from a keypoint the pose model lost in some frames can
+    # be NaN; metrics.json stores it literally, and Starlette's JSON encoder
+    # rejects NaN -- session detail must sanitize it to null rather than 500
+    session_dir = _fake_session(config, with_metrics=False)
+    (session_dir / "metrics.json").write_text(
+        '{"metrics": [{"name": "hip_turn_deg", "value": NaN, "unit": "deg", '
+        '"in_range": null, "range": null}], "tips": []}'
+    )
+    response = client.get("/api/sessions/20260101T000000Z-test0001")
+    assert response.status_code == 200
+    assert response.json()["metrics"]["metrics"][0]["value"] is None
+
+
 def test_session_404(client):
     assert client.get("/api/sessions/nope").status_code == 404
 

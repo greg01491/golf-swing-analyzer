@@ -172,9 +172,7 @@ export default function SessionView({ sessionId }: { sessionId: string }) {
                 {metrics.metrics.map((m) => (
                   <tr key={m.name} className={m.in_range === false ? 'flagged' : ''}>
                     <td>{m.name}</td>
-                    <td>
-                      {m.value} {m.unit}
-                    </td>
+                    <td>{m.value === null ? '—' : `${m.value} ${m.unit}`}</td>
                     <td>
                       {m.in_range === null ? '' : m.in_range ? 'OK' : 'out of range'}
                       {m.range ? ` (${m.range.min}–${m.range.max})` : ''}

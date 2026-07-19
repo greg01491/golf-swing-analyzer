@@ -4,10 +4,27 @@ API does against the session store's on-disk layout."""
 from __future__ import annotations
 
 import json
+import math
 from datetime import UTC, datetime
 from pathlib import Path
 
 from golf_sim.trc import read_trc
+
+
+def _json_safe(value):
+    """Replace non-finite floats (NaN/Inf) with None throughout a nested
+    structure. metrics.json can legitimately contain NaN -- a metric derived
+    from a keypoint the pose model couldn't track in some frames -- and
+    Starlette's JSON encoder rejects NaN (allow_nan=False), 500-ing the whole
+    session-detail response. The UI already treats a null metric as
+    'unavailable'."""
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {k: _json_safe(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(v) for v in value]
+    return value
 
 
 def sessions_root(data_dir: Path) -> Path:
@@ -79,7 +96,9 @@ def session_detail(data_dir: Path, session_id: str) -> dict:
     return {
         "id": session_id,
         "metadata": json.loads(meta_path.read_text()) if meta_path.exists() else {},
-        "metrics": json.loads(metrics_path.read_text()) if metrics_path.exists() else None,
+        "metrics": (
+            _json_safe(json.loads(metrics_path.read_text())) if metrics_path.exists() else None
+        ),
         "cameras": sorted(p.stem for p in session_dir.glob("camera_*.mp4")),
         # cameras with a pose-overlay debug video (skeleton drawn on the
         # golfer) available -- lets the player offer an overlay toggle

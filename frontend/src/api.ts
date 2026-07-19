@@ -9,7 +9,9 @@ export interface SessionSummary {
 
 export interface MetricEntry {
   name: string
-  value: number
+  // null when the metric couldn't be computed (e.g. a keypoint the pose model
+  // lost in the relevant frames) -- the backend sanitizes NaN to null
+  value: number | null
   unit: string
   in_range: boolean | null
   range: { min: number; max: number } | null
