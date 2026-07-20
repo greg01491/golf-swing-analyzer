@@ -9,7 +9,7 @@ audio_trigger:
   # specific device index). Run `python -m golf_sim.audio.cli devices` to
   # list candidates and set an explicit index -- WASAPI-backed entries are
   # the most reliable bet on Windows.
-  device: 14  # Microphone Array (AMD Audio Device), WASAPI -- verified working 2026-07-18
+  device: 11  # Microphone Array (AMD Audio Device), WASAPI 48kHz -- indices shuffle across reboots; re-check with `python -m golf_sim.audio.cli devices` and pick the WASAPI mic (was 14, now 11 as of 2026-07-20)
   # RMS/dB trigger threshold. TBD via calibration helper (Phase 2).
   threshold_db: -20
   # Seconds of footage to keep *before* the trigger in the saved clip.
