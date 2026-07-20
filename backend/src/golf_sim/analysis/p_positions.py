@@ -125,12 +125,16 @@ def detect_p_positions(
     p8 = _find_crossing(hand_height - hip_height_ref, p7, p9)
 
     frames = [p1, p2, p3, p4, p5, p6, p7, p8, p9, p10]
-    # Enforce monotonic order: these are windowed searches so true
-    # violations should be rare, but tracking noise could nudge one frame
-    # out of sequence -- clamp rather than let the UI show positions
-    # jumping backwards in time.
+    # The P-positions happen in strict time order (P1 before P2 before ... P10)
+    # -- that ordering is itself a constraint. These are windowed searches, so
+    # noise could nudge one out of sequence or collapse two onto the same
+    # frame; force each to be at least one frame after the previous (capped at
+    # the last frame) so no two checkpoints ever share a frame or jump
+    # backwards. Any pile-up at the cap is a genuinely too-short/degenerate
+    # tail, which the tracking-quality gate flags separately.
+    last = seq.n_frames - 1
     for i in range(1, len(frames)):
-        frames[i] = max(frames[i], frames[i - 1])
+        frames[i] = min(max(frames[i], frames[i - 1] + 1), last)
 
     return [
         PPosition(name=name, label=label, frame_index=frame, time_s=float(seq.times[frame]))
