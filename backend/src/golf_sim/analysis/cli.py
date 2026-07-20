@@ -59,7 +59,24 @@ def pick_trc(session_dir: Path) -> Path:
 def analyze_session(session_dir: Path, config) -> Path:
     trc_path = pick_trc(session_dir)
     seq = read_trc(trc_path)
-    report = compute_metrics(seq, config.metrics)
+
+    # The audio trigger fires at impact, so the saved clip places impact at
+    # pre_capture_delay_s into it -- hand this to phase detection as the
+    # impact anchor (see detect_phases). Falls back to geometry if metadata
+    # is missing (e.g. a manually assembled clip).
+    from golf_sim.analysis.phases import detect_phases
+
+    phases = None
+    meta_path = session_dir / "metadata.json"
+    if meta_path.exists():
+        try:
+            delay = json.loads(meta_path.read_text()).get("pre_capture_delay_s")
+            if delay is not None:
+                phases = detect_phases(seq, impact_hint_frame=round(float(delay) * seq.fps))
+        except (json.JSONDecodeError, OSError, ValueError):
+            phases = None
+
+    report = compute_metrics(seq, config.metrics, phases=phases)
     tips = generate_tips(report)
 
     out_path = session_dir / "metrics.json"
