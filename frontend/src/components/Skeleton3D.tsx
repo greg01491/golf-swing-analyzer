@@ -155,9 +155,17 @@ export default function Skeleton3D({ landmarks, time, idealFrame, width = 420, h
     }
 
     // --- humanoid meshes (body mode) ---
-    const limbMat = track(new THREE.MeshStandardMaterial({ color: '#e8ecf1', roughness: 0.6 }))
-    const jointMat = track(new THREE.MeshStandardMaterial({ color: '#6d5cf6', roughness: 0.4 }))
-    const headMat = track(new THREE.MeshStandardMaterial({ color: '#f2f4f8', roughness: 0.5 }))
+    // low roughness + a touch of metalness reads as the smooth injection-
+    // moulded mannequin look rather than matte tubes
+    const limbMat = track(
+      new THREE.MeshStandardMaterial({ color: '#eef1f5', roughness: 0.35, metalness: 0.1 }),
+    )
+    const jointMat = track(
+      new THREE.MeshStandardMaterial({ color: '#6d5cf6', roughness: 0.3, metalness: 0.15 }),
+    )
+    const headMat = track(
+      new THREE.MeshStandardMaterial({ color: '#f4f6fa', roughness: 0.3, metalness: 0.1 }),
+    )
 
     const boneMeshes: { mesh: THREE.Mesh; a: string; b: string }[] = []
     const jointMeshes: { mesh: THREE.Mesh; name: string }[] = []
@@ -167,8 +175,10 @@ export default function Skeleton3D({ landmarks, time, idealFrame, width = 420, h
 
     if (mode === 'body') {
       for (const [a, b, r] of BONES) {
-        // unit-height cylinder along +Y, scaled to bone length each frame
-        const geo = track(new THREE.CylinderGeometry(r, r, 1, 12))
+        // unit-length capsule along +Y, scaled to bone length each frame; the
+        // rounded caps overlap the joint spheres so limbs blend smoothly into
+        // joints instead of showing hard tube ends
+        const geo = track(new THREE.CapsuleGeometry(r, 1, 6, 16))
         const mesh = new THREE.Mesh(geo, limbMat)
         boneMeshes.push({ mesh, a, b })
         bodyGroup.add(mesh)

@@ -20,9 +20,11 @@ import numpy as np
 
 from golf_sim.trc import LandmarkSequence
 
-# A golf swing's hands travel well under this vertically; a larger range means
-# the triangulation scale is broken (wrong calibration), not a real swing.
-_MAX_PLAUSIBLE_HAND_RANGE_M = 3.0
+# A full swing's hands trace a large 3D arc (address low -> top high & behind
+# -> impact low -> finish high & around), so the bounding-box span can be
+# ~3m on a *good* capture; only clearly-broken triangulations (seen: 5-8m)
+# exceed this. Set generously to avoid false "impossible" flags on real swings.
+_MAX_PLAUSIBLE_HAND_RANGE_M = 4.5
 # Below this "real motion" fraction the sequence is mostly gap-filled and any
 # derived phase/checkpoint is unreliable.
 _MIN_MOVING_FRACTION = 0.6

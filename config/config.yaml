@@ -13,7 +13,10 @@ audio_trigger:
   # RMS/dB trigger threshold. TBD via calibration helper (Phase 2).
   threshold_db: -20
   # Seconds of footage to keep *before* the trigger in the saved clip.
-  pre_capture_delay_s: 1
+  # 1.5s so the clip reliably includes the address/start of the swing, not
+  # just from mid-backswing (the impact sound is the trigger, and a full
+  # swing's backswing takes longer than 1s).
+  pre_capture_delay_s: 1.5
   # Fixed length of the saved clip, counted from (trigger - pre_capture_delay_s).
   capture_duration_s: 3
   # Ignore re-triggers for this many seconds after a capture starts.
