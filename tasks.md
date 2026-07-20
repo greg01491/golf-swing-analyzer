@@ -153,6 +153,9 @@ Not in the original spec; added per request (2026-07-19).
   - **The compute wrote this broken calibration to disk unconditionally and never warned** — the real bug. Added a hard quality gate in `compute_rig_calibration`: rejects (does not save) a calibration whose lens RMS > 5px or extrinsic reprojection > 50px, with an actionable message on exactly what to recapture. `calibration_status`/`/api/calibration/info` now parse and expose the recorded reprojection error and a `broken` flag; the wizard shows a loud "current calibration is broken — recalibrate" banner. Tests added. Verified live: the info endpoint now reports `broken: true, reprojection_error_px: 580666`.
   - **Action needed from Greg:** the current calibration must be redone. In the wizard: "clear all captures and start over", then the board steps (hold the FULL printed board flat, still, filling the frame, several angles/distances, sharp focus, well lit) and the position step (whole body head-to-feet visible in BOTH camera previews through a slow practice swing), then compute — it will now refuse to save unless the result is actually usable.
 
+## Next up — coloured-ball detection (handoff to Codex)
+- [ ] Auto-detect the ball at address (wrist-anchored ROI, hue segmentation of a bright orange/yellow ball) and anchor P1 (ball still + present) and P7 (ball disappears = impact). Full step-by-step plan, live findings, and gotchas: **[docs/ball-tracking-plan.md](docs/ball-tracking-plan.md)**. Spec: FR25-FR27. Greg has switched to a coloured ball and captured a swing with it (newest session) to validate against.
+
 ## Backlog / Deferred (not scheduled — see spec Non-Goals)
 - [ ] Full 3D mesh (SMPL-style) reconstruction option
 - [ ] Club tracking / ball flight data integration
