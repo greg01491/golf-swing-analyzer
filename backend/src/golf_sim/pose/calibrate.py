@@ -22,16 +22,39 @@ class CalibrationMissingError(RuntimeError):
     pass
 
 
+# A calibration whose recorded reprojection error exceeds this is broken and
+# will produce garbage 3D; flagged so the UI can tell the user to recalibrate.
+_BROKEN_REPROJ_PX = 50.0
+
+
 @dataclass
 class CalibrationStatus:
     exists: bool
     file: Path | None
     age_days: float | None
     stale: bool
+    reprojection_error_px: float | None = None
+
+    @property
+    def broken(self) -> bool:
+        return (
+            self.reprojection_error_px is not None
+            and self.reprojection_error_px > _BROKEN_REPROJ_PX
+        )
 
     @property
     def recalibration_needed(self) -> bool:
-        return not self.exists or self.stale
+        return not self.exists or self.stale or self.broken
+
+
+def _read_reprojection_error(calib_file: Path) -> float | None:
+    try:
+        for line in calib_file.read_text().splitlines():
+            if line.strip().startswith("mean_reprojection_error_px"):
+                return float(line.split("=", 1)[1])
+    except (OSError, ValueError):
+        pass
+    return None
 
 
 def _rig_dir(calibration_config: CalibrationConfig) -> Path:
@@ -55,6 +78,7 @@ def calibration_status(calibration_config: CalibrationConfig) -> CalibrationStat
         file=calib_file,
         age_days=age_days,
         stale=age_days > calibration_config.max_age_days,
+        reprojection_error_px=_read_reprojection_error(calib_file),
     )
 
 

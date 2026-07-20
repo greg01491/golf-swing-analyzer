@@ -78,6 +78,8 @@ export interface CalibrationInfo {
   file: string | null
   age_days: number | null
   stale: boolean
+  reprojection_error_px?: number | null
+  broken?: boolean
 }
 
 export interface CalibrationShot {

@@ -20,6 +20,11 @@ from golf_sim.pose.rig_calibration import (
 
 MARKER = "calibration_shot.json"
 
+# Calibration-quality gates: above these the calibration is unusable and is
+# refused rather than silently saved (see compute_rig_calibration).
+_MAX_LENS_RMS_PX = 5.0
+_MAX_EXTRINSIC_REPROJ_PX = 50.0
+
 
 def mark_calibration_shot(
     session_dir: Path, kind: str, config: Config, for_camera: str | None = None
@@ -131,6 +136,31 @@ def compute_rig_calibration(
     rotation, translation, n_points, reproj_err, height = calibrate_extrinsics(
         pose_dir, cam1, cam2, camera_distance_m
     )
+
+    # Reject an unusable calibration BEFORE writing it -- otherwise a broken
+    # calibration (seen live: 580,000px reprojection error, from poor
+    # checkerboard captures) is saved silently and corrupts the 3D of every
+    # session that uses it, showing as garbage skeletons / metres-long bones.
+    problems = []
+    if cam1.rms_error > _MAX_LENS_RMS_PX or cam2.rms_error > _MAX_LENS_RMS_PX:
+        problems.append(
+            f"lens calibration is poor (camera_1 {cam1.rms_error:.1f}px, "
+            f"camera_2 {cam2.rms_error:.1f}px; a good one is under ~1px). Redo the board "
+            "steps: hold the FULL printed board flat and still, filling more of the frame, "
+            "at several angles/distances, well lit and in sharp focus."
+        )
+    if reproj_err > _MAX_EXTRINSIC_REPROJ_PX:
+        problems.append(
+            f"the camera-position solve failed ({reproj_err:.0f}px reprojection; a good one "
+            f"is under ~{_MAX_EXTRINSIC_REPROJ_PX:.0f}px). Redo the position step with your "
+            "WHOLE body (head to feet) clearly visible in BOTH camera previews through a slow "
+            "practice swing, and double-check the measured camera-to-camera distance."
+        )
+    if problems:
+        raise CalibrationDataError(
+            "Calibration is not usable, so it was NOT saved (your previous one is unchanged):\n- "
+            + "\n- ".join(problems)
+        )
 
     rig = RigCalibration(
         cam1=cam1,

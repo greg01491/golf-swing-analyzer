@@ -37,6 +37,34 @@ def test_status_ok_for_fresh_calibration(tmp_path):
     assert status.age_days == pytest.approx(0, abs=0.01)
 
 
+def test_status_flags_broken_calibration_by_reprojection_error(tmp_path):
+    config = _config(tmp_path)
+    calib_dir = tmp_path / "calibration"
+    calib_dir.mkdir()
+    (calib_dir / "Calib_rig.toml").write_text(
+        "[camera_1]\n[metadata]\nmean_reprojection_error_px = 580666.444\n"
+    )
+
+    status = calibration_status(config)
+    assert status.exists
+    assert status.reprojection_error_px == pytest.approx(580666.444)
+    assert status.broken
+    assert status.recalibration_needed
+
+
+def test_status_not_broken_for_good_reprojection_error(tmp_path):
+    config = _config(tmp_path)
+    calib_dir = tmp_path / "calibration"
+    calib_dir.mkdir()
+    (calib_dir / "Calib_rig.toml").write_text(
+        "[camera_1]\n[metadata]\nmean_reprojection_error_px = 3.2\n"
+    )
+
+    status = calibration_status(config)
+    assert not status.broken
+    assert not status.recalibration_needed
+
+
 def test_status_stale_for_old_calibration(tmp_path):
     config = _config(tmp_path, max_age_days=60)
     calib_dir = tmp_path / "calibration"

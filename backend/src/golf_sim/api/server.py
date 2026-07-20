@@ -275,6 +275,8 @@ def create_app(
             "file": str(status.file) if status.file else None,
             "age_days": status.age_days,
             "stale": status.stale,
+            "reprojection_error_px": status.reprojection_error_px,
+            "broken": status.broken,
         }
 
     @app.get("/api/calibration/board.png")

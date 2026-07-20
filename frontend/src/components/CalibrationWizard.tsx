@@ -338,13 +338,27 @@ export default function CalibrationWizard() {
         </button>
       </div>
 
-      {info && (
-        <div className={`panel calib-status ${info.stale ? 'stale' : info.exists ? 'ok' : ''}`}>
-          {info.exists
-            ? `Calibration on file: ${info.age_days?.toFixed(0)} day(s) old${info.stale ? ' — stale, recalibrate' : ''}`
-            : 'No calibration on file yet.'}
-        </div>
-      )}
+      {info &&
+        (info.broken ? (
+          <div className="panel calib-status stale">
+            <strong>⚠ The current calibration is broken</strong> (reprojection error{' '}
+            {info.reprojection_error_px != null
+              ? `${Math.round(info.reprojection_error_px).toLocaleString()}px`
+              : 'very high'}
+            ; a good one is under ~50px). Every session using it produces garbage 3D — tangled
+            skeletons, wrong positions, nonsense metrics. <strong>Recalibrate:</strong> clear all
+            captures, redo the board and position steps carefully, and recompute.
+          </div>
+        ) : (
+          <div className={`panel calib-status ${info.stale ? 'stale' : info.exists ? 'ok' : ''}`}>
+            {info.exists
+              ? `Calibration on file: ${info.age_days?.toFixed(0)} day(s) old${info.stale ? ' — stale, recalibrate' : ''}` +
+                (info.reprojection_error_px != null
+                  ? ` — reprojection error ${Math.round(info.reprojection_error_px)}px`
+                  : '')
+              : 'No calibration on file yet.'}
+          </div>
+        ))}
 
       <div className="wizard-tabs">
         {(['camera_1', 'camera_2', 'position'] as Stage[]).map((s) => (
