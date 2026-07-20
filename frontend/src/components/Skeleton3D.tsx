@@ -5,25 +5,28 @@ import type { Landmarks } from '../api'
 
 // Bones as (jointA, jointB, radius-in-metres). Torso sides (shoulder->hip)
 // are included so the trunk reads as a solid body, not just a spine line.
+// Radii (metres) kept slim so the figure reads as an athletic mannequin, not
+// a bloated balloon -- roughly half real limb thickness, since the capsules
+// plus joint spheres visually fatten it.
 const BONES: [string, string, number][] = [
-  ['Head', 'Neck', 0.045],
-  ['Neck', 'RShoulder', 0.05],
-  ['Neck', 'LShoulder', 0.05],
-  ['RShoulder', 'RElbow', 0.045],
-  ['RElbow', 'RWrist', 0.035],
-  ['LShoulder', 'LElbow', 0.045],
-  ['LElbow', 'LWrist', 0.035],
-  ['Neck', 'Hip', 0.07],
-  ['RShoulder', 'RHip', 0.055],
-  ['LShoulder', 'LHip', 0.055],
-  ['Hip', 'RHip', 0.06],
-  ['Hip', 'LHip', 0.06],
-  ['RHip', 'RKnee', 0.07],
-  ['RKnee', 'RAnkle', 0.05],
-  ['LHip', 'LKnee', 0.07],
-  ['LKnee', 'LAnkle', 0.05],
-  ['RAnkle', 'RBigToe', 0.03],
-  ['LAnkle', 'LBigToe', 0.03],
+  ['Head', 'Neck', 0.028],
+  ['Neck', 'RShoulder', 0.03],
+  ['Neck', 'LShoulder', 0.03],
+  ['RShoulder', 'RElbow', 0.028],
+  ['RElbow', 'RWrist', 0.022],
+  ['LShoulder', 'LElbow', 0.028],
+  ['LElbow', 'LWrist', 0.022],
+  ['Neck', 'Hip', 0.045],
+  ['RShoulder', 'RHip', 0.035],
+  ['LShoulder', 'LHip', 0.035],
+  ['Hip', 'RHip', 0.038],
+  ['Hip', 'LHip', 0.038],
+  ['RHip', 'RKnee', 0.045],
+  ['RKnee', 'RAnkle', 0.032],
+  ['LHip', 'LKnee', 0.045],
+  ['LKnee', 'LAnkle', 0.032],
+  ['RAnkle', 'RBigToe', 0.02],
+  ['LAnkle', 'LBigToe', 0.02],
 ]
 const JOINTS = [
   'Neck',
@@ -184,12 +187,12 @@ export default function Skeleton3D({ landmarks, time, idealFrame, width = 420, h
         bodyGroup.add(mesh)
       }
       for (const name of JOINTS) {
-        const geo = track(new THREE.SphereGeometry(0.05, 16, 12))
+        const geo = track(new THREE.SphereGeometry(0.035, 16, 12))
         const mesh = new THREE.Mesh(geo, jointMat)
         jointMeshes.push({ mesh, name })
         bodyGroup.add(mesh)
       }
-      headMesh = new THREE.Mesh(track(new THREE.SphereGeometry(0.11, 20, 16)), headMat)
+      headMesh = new THREE.Mesh(track(new THREE.SphereGeometry(0.09, 20, 16)), headMat)
       bodyGroup.add(headMesh)
       scene.add(bodyGroup)
     } else {
