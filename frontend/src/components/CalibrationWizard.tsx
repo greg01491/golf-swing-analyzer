@@ -9,13 +9,13 @@ const STAGE_INFO: Record<Stage, { title: string; instructions: string; camera: s
   camera_1: {
     title: 'Step 1 of 3 — down-the-line camera lens',
     instructions:
-      "Hold the board about arm's length from this camera, well lit. Slowly tilt and move it to different parts of the frame between captures — corners, edges, angled toward/away.",
+      'Walk UP TO this camera and hold the printed board close to the lens (about 30–50cm away) so the checkerboard FILLS most of the frame — do NOT stand back at your hitting position; a board seen from across the room is far too small to detect. Keep it flat, still, and in sharp focus, and between captures tilt it and move it to different parts of the frame (corners, edges, angled toward/away). Watch the "board detected" count below climb — if it stays 0, the board is too far, too small, blurry, or badly lit.',
     camera: 'camera_1',
   },
   camera_2: {
     title: 'Step 2 of 3 — face-on camera lens',
     instructions:
-      "Same again, but for the other camera. Hold the board about arm's length away and vary its angle and position between captures.",
+      'Same again, up close to the OTHER camera: hold the board 30–50cm from that lens so it fills the frame, flat and in focus, varying its angle and position between captures. Again, watch the "board detected" count climb.',
     camera: 'camera_2',
   },
   position: {
