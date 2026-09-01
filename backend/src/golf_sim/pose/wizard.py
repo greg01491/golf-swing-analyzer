@@ -6,8 +6,11 @@ Calib_rig.toml."""
 from __future__ import annotations
 
 import json
+import logging
 import shutil
 from pathlib import Path
+
+import cv2
 
 from golf_sim.config import REPO_ROOT, Config
 from golf_sim.pose.board_detect import count_board_in_clip
@@ -18,12 +21,37 @@ from golf_sim.pose.rig_calibration import (
     write_calib_toml,
 )
 
+logger = logging.getLogger(__name__)
+
 MARKER = "calibration_shot.json"
 
 # Calibration-quality gates: above these the calibration is unusable and is
 # refused rather than silently saved (see compute_rig_calibration).
 _MAX_LENS_RMS_PX = 5.0
 _MAX_EXTRINSIC_REPROJ_PX = 50.0
+
+
+def _save_preview_frame(video_path: Path, output_path: Path) -> None:
+    """Save the first frame from a video as a preview image."""
+    try:
+        cap = cv2.VideoCapture(str(video_path))
+        if not cap.isOpened():
+            logger.warning(f"Cannot open video to extract preview: {video_path}")
+            return
+        ok, frame = cap.read()
+        cap.release()
+        if not ok:
+            logger.warning(f"Cannot read first frame from {video_path}")
+            return
+        # Scale down to reasonable size (max 400px width) for preview
+        h, w = frame.shape[:2]
+        if w > 400:
+            scale = 400 / w
+            frame = cv2.resize(frame, (int(w * scale), int(h * scale)))
+        cv2.imwrite(str(output_path), frame)
+        logger.debug(f"Saved preview frame to {output_path}")
+    except Exception as e:
+        logger.warning(f"Failed to save preview frame: {e}")
 
 
 def mark_calibration_shot(
@@ -44,6 +72,13 @@ def mark_calibration_shot(
     if kind == "intrinsics":
         for clip in sorted(Path(session_dir).glob("camera_*.mp4")):
             board_counts[clip.stem] = count_board_in_clip(clip, corners)
+        
+        # Save a preview frame from camera_1 to help user see what was captured
+        camera_1_mp4 = Path(session_dir) / "camera_1.mp4"
+        if camera_1_mp4.exists():
+            preview_path = Path(session_dir) / "preview.jpg"
+            _save_preview_frame(camera_1_mp4, preview_path)
+    
     marker = {
         "kind": kind,
         "for_camera": for_camera,

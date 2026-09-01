@@ -579,10 +579,20 @@ ol li {
   z-index: 2;
 }
 
+.countdown-big[data-saving="true"] {
+  font-size: 20px;
+  gap: 12px;
+  background: rgba(0, 0, 0, 0.8);
+}
+
 .countdown-caption {
   font-size: clamp(16px, 3vw, 28px);
   font-weight: 600;
   opacity: 0.85;
+}
+
+.countdown-big[data-saving="true"] .countdown-caption {
+  font-size: 14px;
 }
 
 .countdown-big.captured-flash {

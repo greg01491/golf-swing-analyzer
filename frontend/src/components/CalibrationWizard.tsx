@@ -394,7 +394,7 @@ export default function CalibrationWizard() {
             <LivePreview camera={info_.camera} label={info_.camera} />
           )}
           {counting !== null && (
-            <div className="countdown-big">
+            <div className="countdown-big" data-saving={savingCapture}>
               {savingCapture ? 'saving…' : counting}
               <div className="countdown-caption">
                 {savingCapture
