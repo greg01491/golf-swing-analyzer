@@ -2,6 +2,12 @@
   "name": "golf-swing-analyzer",
   "private": true,
   "version": "0.1.0",
+  "description": "Desktop golf swing capture and 3D pose analysis",
+  "author": "Greg Brown",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/greg01491/golf-swing-analyzer.git"
+  },
   "type": "module",
   "main": "electron/main.js",
   "build": {

@@ -7,6 +7,11 @@ export interface SessionSummary {
   has_metrics: boolean
 }
 
+export interface ClubOption {
+  id: string
+  label: string
+}
+
 export interface MetricEntry {
   name: string
   // null when the metric couldn't be computed (e.g. a keypoint the pose model
@@ -47,6 +52,8 @@ export interface SessionDetail {
   // golfer) available for playback
   overlay_cameras?: string[]
   metrics: {
+    club?: string | null
+    club_profile?: string | null
     phases?: { address_frame: number; top_frame: number; impact_frame: number }
     tracking_quality?: TrackingQuality
     metrics: MetricEntry[]
@@ -71,6 +78,7 @@ export interface CaptureStatus {
   camera_health: Record<string, boolean>
   last_session: string | null
   last_error: string | null
+  selected_club: string | null
 }
 
 export interface CalibrationInfo {
@@ -142,6 +150,7 @@ async function json<T>(res: Response): Promise<T> {
 }
 
 export const api = {
+  clubs: () => fetch(`${BASE}/api/clubs`).then((r) => json<ClubOption[]>(r)),
   sessions: () => fetch(`${BASE}/api/sessions`).then((r) => json<SessionSummary[]>(r)),
   session: (id: string) =>
     fetch(`${BASE}/api/sessions/${id}`).then((r) => json<SessionDetail>(r)),
@@ -173,6 +182,12 @@ export const api = {
     fetch(`${BASE}/api/capture/disarm`, { method: 'POST' }).then((r) => json<unknown>(r)),
   trigger: () =>
     fetch(`${BASE}/api/capture/trigger`, { method: 'POST' }).then((r) => json<unknown>(r)),
+  selectClub: (club: string) =>
+    fetch(`${BASE}/api/capture/club`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ club }),
+    }).then((r) => json<{ club: string }>(r)),
   previewUrl: (camera: string) => `${BASE}/api/capture/preview/${camera}`,
   calibrationBoardUrl: () => `${BASE}/api/calibration/board.png`,
   calibrationInfo: () =>

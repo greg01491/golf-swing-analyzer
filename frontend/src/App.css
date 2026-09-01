@@ -7,6 +7,31 @@
   --muted: #8b98a5;
   --accent: #4ade80;
   --error: #f87171;
+  --deep-bg: #0a0e12;
+  --success-bg: #14532d;
+  --danger-bg: #450a0a;
+  --warning-bg: #3a2a08;
+  --warning-border: #b45309;
+  --warning-text: #fbbf24;
+  --focus-bg: rgba(74, 222, 128, 0.1);
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --bg: #f4f7f5;
+  --panel: #ffffff;
+  --border: #c7d2cc;
+  --text: #17201c;
+  --muted: #596b63;
+  --accent: #15803d;
+  --error: #b91c1c;
+  --deep-bg: #e5ebe8;
+  --success-bg: #dcfce7;
+  --danger-bg: #fee2e2;
+  --warning-bg: #fffbeb;
+  --warning-border: #d97706;
+  --warning-text: #92400e;
+  --focus-bg: rgba(21, 128, 61, 0.12);
 }
 
 * {
@@ -18,6 +43,9 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: system-ui, sans-serif;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
 }
 
 .app {
@@ -54,13 +82,44 @@ button:hover {
   border-color: var(--accent);
 }
 
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.arm-control select {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+.session-club {
+  color: var(--accent);
+  text-transform: capitalize;
+  margin-top: -8px;
+}
+
+.voice-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.theme-toggle {
+  white-space: nowrap;
+}
+
 button.active {
   border-color: var(--accent);
   color: var(--accent);
 }
 
 button.armed {
-  background: #14532d;
+  background: var(--success-bg);
   border-color: var(--accent);
   color: var(--accent);
 }
@@ -158,6 +217,42 @@ main {
   min-width: 320px;
 }
 
+.session-heading,
+.metrics-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.session-heading h2,
+.metrics-heading h3 {
+  margin-top: 0;
+}
+
+.pro-mode-toggle {
+  white-space: nowrap;
+}
+
+.pro-playback-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.pro-camera video {
+  display: block;
+  width: 100%;
+  max-height: 68vh;
+  object-fit: contain;
+}
+
+.sync-label {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+}
+
 .camera-tabs {
   display: flex;
   gap: 6px;
@@ -225,6 +320,39 @@ tr.flagged td {
   color: var(--error);
 }
 
+tr.voice-focused td {
+  background: var(--focus-bg);
+}
+
+.metric-instruction {
+  margin-top: -6px;
+  font-size: 12px;
+}
+
+.metric-focus {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 3px 6px;
+  border-color: transparent;
+  background: transparent;
+  text-align: left;
+}
+
+.metric-focus span {
+  color: var(--accent);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+  .pro-playback-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 ol {
   padding-left: 20px;
 }
@@ -244,16 +372,16 @@ ol li {
 
 .banner {
   padding: 10px 16px;
-  background: #450a0a;
+  background: var(--danger-bg);
 }
 
 .quality-warning {
-  border: 1px solid #b45309;
-  background: #3a2a08;
+  border: 1px solid var(--warning-border);
+  background: var(--warning-bg);
 }
 
 .quality-warning strong {
-  color: #fbbf24;
+  color: var(--warning-text);
 }
 
 .quality-warning ul {
@@ -269,7 +397,7 @@ ol li {
 .mic-meter {
   width: 120px;
   height: 10px;
-  background: #0a0e12;
+  background: var(--deep-bg);
   border: 1px solid var(--border);
   border-radius: 5px;
   overflow: hidden;
@@ -345,7 +473,7 @@ ol li {
 }
 
 .calib-status.stale {
-  border-left-color: #fbbf24;
+  border-left-color: var(--warning-text);
 }
 
 .wizard-tabs {
@@ -573,12 +701,12 @@ ol li {
 }
 
 .status-badge.ok {
-  background: #14532d;
+  background: var(--success-bg);
   color: var(--accent);
 }
 
 .status-badge.fail {
-  background: #450a0a;
+  background: var(--danger-bg);
   color: var(--error);
 }
 
@@ -586,7 +714,7 @@ ol li {
   margin: 8px 0 0;
   padding-left: 20px;
   font-size: 13px;
-  color: #fbbf24;
+  color: var(--warning-text);
   line-height: 1.5;
 }
 

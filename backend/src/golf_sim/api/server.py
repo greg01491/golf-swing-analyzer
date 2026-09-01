@@ -13,6 +13,7 @@ from pathlib import Path
 import yaml
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
 from ruamel.yaml import YAML
 
 from golf_sim.api.runtime import CaptureRuntime
@@ -22,9 +23,13 @@ from golf_sim.api.sessions import (
     session_dir_for,
     session_landmarks,
 )
-from golf_sim.config import DEFAULT_CONFIG_PATH, REPO_ROOT, Config, load_config
+from golf_sim.config import CLUB_LABELS, DEFAULT_CONFIG_PATH, REPO_ROOT, Club, Config, load_config
 
 logger = logging.getLogger(__name__)
+
+
+class ClubSelection(BaseModel):
+    club: Club
 
 
 def _deep_update(target, source: dict) -> None:
@@ -114,6 +119,10 @@ def create_app(
     @app.get("/api/sessions")
     def get_sessions():
         return list_sessions(data_dir)
+
+    @app.get("/api/clubs")
+    def get_clubs():
+        return [{"id": club, "label": label} for club, label in CLUB_LABELS.items()]
 
     @app.get("/api/sessions/{session_id}")
     def get_session(session_id: str):
@@ -314,7 +323,13 @@ def create_app(
             "camera_health": runtime.camera_health,
             "last_session": runtime.last_session_dir.name if runtime.last_session_dir else None,
             "last_error": runtime.last_error,
+            "selected_club": runtime.selected_club,
         }
+
+    @app.put("/api/capture/club")
+    def select_club(selection: ClubSelection):
+        runtime.select_club(selection.club)
+        return {"club": selection.club}
 
     @app.post("/api/capture/arm")
     def arm():

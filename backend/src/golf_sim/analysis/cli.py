@@ -17,16 +17,16 @@ from golf_sim.analysis.metrics import compute_metrics
 from golf_sim.analysis.p_positions import detect_p_positions
 from golf_sim.analysis.quality import assess_tracking_quality
 from golf_sim.analysis.tips import generate_tips, tips_to_dicts
-from golf_sim.config import REPO_ROOT, load_config
+from golf_sim.config import REPO_ROOT, Club, load_config
 from golf_sim.trc import read_trc
 
 
-def _p_positions_payload(seq, report, config) -> list[dict]:
+def _p_positions_payload(seq, report, config, club: Club | None = None) -> list[dict]:
     handedness = config.analysis.golfer_handedness
     positions = detect_p_positions(seq, report.phases, handedness=handedness)
     frame_by_name = {p.name: p.frame_index for p in positions}
     ideal_frames = build_all_ideal_frames(
-        seq, report.phases, frame_by_name, config.metrics, handedness=handedness
+        seq, report.phases, frame_by_name, config.metrics, handedness=handedness, club=club
     )
     return [
         {
@@ -67,27 +67,32 @@ def analyze_session(session_dir: Path, config) -> Path:
     from golf_sim.analysis.phases import detect_phases
 
     phases = None
+    club: Club | None = None
     meta_path = session_dir / "metadata.json"
     if meta_path.exists():
         try:
-            delay = json.loads(meta_path.read_text()).get("pre_capture_delay_s")
+            metadata = json.loads(meta_path.read_text())
+            delay = metadata.get("pre_capture_delay_s")
+            club = metadata.get("club")
             if delay is not None:
                 phases = detect_phases(seq, impact_hint_frame=round(float(delay) * seq.fps))
         except (json.JSONDecodeError, OSError, ValueError):
             phases = None
 
-    report = compute_metrics(seq, config.metrics, phases=phases)
+    report = compute_metrics(seq, config.metrics, phases=phases, club=club)
     tips = generate_tips(report)
 
     out_path = session_dir / "metrics.json"
     payload = {
         "source_trc": trc_path.name,
+        "club": club,
+        "club_profile": config.metrics.club_profile_mapping.get(club) if club else None,
         # quality first so the UI can caveat everything below it when the
         # reconstruction is too poor to trust (see analysis.quality)
         "tracking_quality": assess_tracking_quality(seq).to_dict(),
         **report.to_dict(),
         "tips": tips_to_dicts(tips),
-        "p_positions": _p_positions_payload(seq, report, config),
+        "p_positions": _p_positions_payload(seq, report, config, club=club),
     }
     out_path.write_text(json.dumps(payload, indent=2))
     return out_path
