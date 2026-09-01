@@ -7,7 +7,9 @@
 from __future__ import annotations
 
 import logging
+import os
 import threading
+from collections.abc import Callable
 from pathlib import Path
 
 import yaml
@@ -51,15 +53,32 @@ def _write_config_preserving_comments(config_path: Path, new_config: dict) -> No
         ruamel.dump(doc, f)
 
 
-def _run_full_pipeline(session_dir: Path, config: Config) -> None:
-    """2D pose -> 3D reconstruction -> metrics + tips for one session."""
+def _run_full_pipeline(session_dir: Path, config: Config) -> Callable[[], None] | None:
+    """Run analysis and return optional media work that can finish afterward."""
     from golf_sim.analysis.cli import analyze_session
+    from golf_sim.capture.transcode import ensure_h264
     from golf_sim.pose.estimate import run_pose_estimation
     from golf_sim.pose.reconstruct import run_reconstruction
 
-    run_pose_estimation(session_dir, config.pose)
+    pose_result = run_pose_estimation(session_dir, config.pose, transcode_overlays=False)
+    pending_overlays = []
+    for video in pose_result.overlay_videos:
+        pending = video.with_name(f".pending_{video.name}")
+        os.replace(video, pending)
+        pending_overlays.append((pending, video))
+
     run_reconstruction(session_dir, config)
     analyze_session(session_dir, config)
+
+    if not pending_overlays:
+        return None
+
+    def finalize_overlays() -> None:
+        for pending, video in pending_overlays:
+            if ensure_h264(pending):
+                os.replace(pending, video)
+
+    return finalize_overlays
 
 
 def create_app(
@@ -100,8 +119,16 @@ def create_app(
         def run() -> None:
             with processing_lock:
                 try:
-                    processor(session_dir, config)
+                    finalize = processor(session_dir, config)
                     processing[session_id] = "done"
+                    if finalize is not None:
+                        try:
+                            finalize()
+                        except Exception:
+                            # Metrics are already complete; optional overlay
+                            # finalization must not turn a successful analysis
+                            # into an error.
+                            logger.exception("post-processing failed for session %s", session_id)
                 except Exception as exc:
                     processing[session_id] = f"error: {exc}"
 
