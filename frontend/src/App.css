@@ -522,6 +522,10 @@ ol li {
   object-fit: contain;
 }
 
+.preview-box img.preview-retrying {
+  display: none;
+}
+
 .preview-label {
   font-size: 12px;
   color: var(--muted);

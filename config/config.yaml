@@ -81,6 +81,8 @@ calibration:
   - 4
   - 7
   checkerboard_square_size_mm: 28.4  # measured on Greg's print with a ruler
+  # Straight-line distance between the two camera lenses in the current rig.
+  camera_distance_m: 3.115
 
 metrics:
   # Per-metric reference ranges; edit freely. Units in degrees unless noted.

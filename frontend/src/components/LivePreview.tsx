@@ -11,16 +11,14 @@ export default function LivePreview({ camera, label }: { camera: string; label: 
   return (
     <div className="preview-box">
       <div className="preview-label">{label}</div>
-      {failed ? (
-        <div className="preview-placeholder">no signal — is capture armed?</div>
-      ) : (
-        <img
-          src={`${api.previewUrl(camera)}?t=${tick}`}
-          onError={() => setFailed(true)}
-          onLoad={() => setFailed(false)}
-          alt={`${label} live preview`}
-        />
-      )}
+      <img
+        className={failed ? 'preview-retrying' : ''}
+        src={`${api.previewUrl(camera)}?t=${tick}`}
+        onError={() => setFailed(true)}
+        onLoad={() => setFailed(false)}
+        alt={`${label} live preview`}
+      />
+      {failed && <div className="preview-placeholder">starting camera…</div>}
     </div>
   )
 }

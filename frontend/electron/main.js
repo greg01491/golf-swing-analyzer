@@ -8,8 +8,20 @@ const isDev = !app.isPackaged;
 const backendUrl = "http://127.0.0.1:8765";
 let backendProcess = null;
 let backendLog = null;
+let rendererLog = null;
 let backendSpawnFailed = false;
 let mainWindow = null;
+
+function writeRendererLog(message) {
+  rendererLog?.write(`${new Date().toISOString()} ${message}\n`);
+}
+
+process.on("uncaughtException", (error) => {
+  writeRendererLog(`main uncaught exception: ${error.stack ?? error}`);
+});
+process.on("unhandledRejection", (reason) => {
+  writeRendererLog(`main unhandled rejection: ${reason?.stack ?? reason}`);
+});
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
@@ -64,13 +76,16 @@ function runtimePaths() {
     dataDir,
     calibrationDir,
     logPath: path.join(logsDir, "backend.log"),
+    rendererLogPath: path.join(logsDir, "renderer.log"),
   };
 }
 
 async function startBackend() {
-  if (await healthCheck()) return { ready: true, logPath: null };
-
   const paths = runtimePaths();
+  rendererLog = fs.createWriteStream(paths.rendererLogPath, { flags: "a" });
+  rendererLog.write(`\n--- renderer start ${new Date().toISOString()} ---\n`);
+  if (await healthCheck()) return { ready: true, logPath: paths.logPath };
+
   backendLog = fs.createWriteStream(paths.logPath, { flags: "a" });
   backendLog.write(`\n--- backend start ${new Date().toISOString()} ---\n`);
 
@@ -110,6 +125,8 @@ function stopBackend() {
   backendProcess = null;
   backendLog?.end();
   backendLog = null;
+  rendererLog?.end();
+  rendererLog = null;
 }
 
 function createWindow() {
@@ -123,14 +140,34 @@ function createWindow() {
     },
   });
 
+  mainWindow.on("closed", () => {
+    mainWindow = null;
+  });
+  mainWindow.webContents.on("console-message", (_event, detailsOrLevel, message, line, sourceId) => {
+    const details =
+      typeof detailsOrLevel === "object"
+        ? detailsOrLevel
+        : { level: detailsOrLevel, message, lineNumber: line, sourceId };
+    const level = details.level ?? 0;
+    if (level < 2) return;
+    writeRendererLog(
+      `console[${level}] ${details.message} (${details.sourceId}:${details.lineNumber})`,
+    );
+  });
+  mainWindow.webContents.on("render-process-gone", (_event, details) => {
+    writeRendererLog(`renderer gone: ${JSON.stringify(details)}`);
+  });
+  mainWindow.webContents.on(
+    "did-fail-load",
+    (_event, errorCode, errorDescription, validatedURL) => {
+      writeRendererLog(`load failed: ${errorCode} ${errorDescription} ${validatedURL}`);
+    },
+  );
   if (isDev) {
     mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL ?? "http://localhost:5173");
   } else {
     mainWindow.loadFile(path.join(__dirname, "../dist/index.html"));
   }
-  mainWindow.on("closed", () => {
-    mainWindow = null;
-  });
 }
 
 app.whenReady().then(async () => {

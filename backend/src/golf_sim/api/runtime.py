@@ -78,7 +78,7 @@ class CaptureRuntime:
         trigger but never dispatches auto-processing (the caller marks the
         session as a calibration shot instead)."""
         if not self.running:
-            self.start()
+            self.start_cameras()
         assert self._capture is not None
         import time as _time
 
@@ -107,13 +107,26 @@ class CaptureRuntime:
         # observe an idle status, and never poll for the completed results.
         self.last_session_dir = session_dir
 
-    def start(self) -> None:
+    def start_cameras(self) -> None:
         with self._lock:
             if self.running:
                 return
             self.last_error = None
             capture = CaptureService(self.config, sources=self._camera_sources)
             capture.start()
+            self._capture = capture
+
+    def start(self) -> None:
+        with self._lock:
+            capture_created = False
+            if self._capture is None:
+                self.last_error = None
+                capture = CaptureService(self.config, sources=self._camera_sources)
+                capture.start()
+                self._capture = capture
+                capture_created = True
+            if self._audio is not None:
+                return
             audio_source = self._audio_source or SounddeviceMicSource(
                 device=self.config.audio_trigger.device
             )
@@ -125,9 +138,11 @@ class CaptureRuntime:
             try:
                 audio.start()
             except Exception:
-                capture.stop()
+                if capture_created:
+                    self._capture.stop()
+                    self._capture = None
                 raise
-            self._capture, self._audio = capture, audio
+            self._audio = audio
 
     def stop(self) -> None:
         with self._lock:

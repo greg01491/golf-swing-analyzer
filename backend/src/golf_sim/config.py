@@ -54,6 +54,7 @@ class CalibrationConfig(BaseModel):
     max_age_days: int
     checkerboard_corners: list[int]
     checkerboard_square_size_mm: float
+    camera_distance_m: float = 3.115
 
 
 class ReferenceRange(BaseModel):

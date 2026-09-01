@@ -61,6 +61,7 @@ jobs:
           $env:GOLF_SIM_CONFIG_PATH = "$runtime\config.yaml"
           $env:GOLF_SIM_DATA_DIR = "$runtime\data"
           $env:GOLF_SIM_CALIBRATION_DIR = "$runtime\calibration"
+          $env:TORCH_HOME = (Resolve-Path "backend\runtime-models").Path
           $backend = Start-Process `
             "backend\dist\golf-sim-backend\golf-sim-backend.exe" `
             -PassThru

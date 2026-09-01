@@ -48,6 +48,7 @@ function SetupGate({ onConfirm }: { onConfirm: (distanceM: number) => void }) {
       setConfig(c)
       const current = (c as any).calibration?.checkerboard_square_size_mm
       if (current) setSquareSize(String(current))
+      setDistance(String((c as any).calibration?.camera_distance_m ?? 3.115))
     })
   }, [])
 
@@ -63,7 +64,11 @@ function SetupGate({ onConfirm }: { onConfirm: (distanceM: number) => void }) {
     try {
       await api.saveConfig({
         ...config,
-        calibration: { ...config.calibration, checkerboard_square_size_mm: squareSizeNum },
+        calibration: {
+          ...config.calibration,
+          checkerboard_square_size_mm: squareSizeNum,
+          camera_distance_m: distanceNum,
+        },
       })
       onConfirm(distanceNum)
     } catch (e) {
@@ -124,7 +129,7 @@ function SetupGate({ onConfirm }: { onConfirm: (distanceM: number) => void }) {
           <input
             value={distance}
             onChange={(e) => setDistance(e.target.value)}
-            placeholder="e.g. 2.5"
+            placeholder="3.115"
           />
         </label>
       </div>
@@ -157,6 +162,18 @@ export default function CalibrationWizard() {
     api.calibrationInfo().then(setInfo)
     refreshShots()
   }, [])
+
+  useEffect(() => {
+    if (distance === null || editingDistance) return
+    let active = true
+    api.calibrationPreviewStart().catch((e) => {
+      if (active) setError(String(e))
+    })
+    return () => {
+      active = false
+      api.calibrationPreviewStop().catch((e) => console.error(e))
+    }
+  }, [distance, editingDistance])
 
   useEffect(() => {
     if (compute?.state !== 'running') return
@@ -332,7 +349,7 @@ export default function CalibrationWizard() {
       <h2>Camera calibration</h2>
 
       <div className="panel distance-confirmed">
-        camera distance: <strong>{distance.toFixed(2)} m</strong>{' '}
+        camera distance: <strong>{distance.toFixed(3)} m</strong>{' '}
         <button className="link-btn" onClick={() => setEditingDistance(true)}>
           change
         </button>
@@ -447,7 +464,7 @@ export default function CalibrationWizard() {
 
       <div className="panel">
         <h3>Compute calibration</h3>
-        <p className="muted">using camera distance: {distance.toFixed(2)} m</p>
+        <p className="muted">using camera distance: {distance.toFixed(3)} m</p>
         <button onClick={runCompute} disabled={compute?.state === 'running'}>
           {compute?.state === 'running' ? 'computing…' : 'compute calibration'}
         </button>

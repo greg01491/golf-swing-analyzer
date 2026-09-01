@@ -155,7 +155,11 @@ export interface CameraCheckResult {
 const BASE = window.location.protocol === 'file:' ? 'http://127.0.0.1:8765' : ''
 
 async function json<T>(res: Response): Promise<T> {
-  if (!res.ok) throw new Error(`${res.status} ${await res.text()}`)
+  if (!res.ok) {
+    const body = await res.text()
+    console.error(`${res.url} failed: ${res.status} ${body}`)
+    throw new Error(`${res.status} ${body}`)
+  }
   return res.json()
 }
 
@@ -201,6 +205,14 @@ export const api = {
     }).then((r) => json<{ club: string }>(r)),
   previewUrl: (camera: string) => `${BASE}/api/capture/preview/${camera}`,
   calibrationBoardUrl: () => `${BASE}/api/calibration/board.png`,
+  calibrationPreviewStart: () =>
+    fetch(`${BASE}/api/calibration/preview/start`, { method: 'POST' }).then((r) =>
+      json<{ running: boolean }>(r),
+    ),
+  calibrationPreviewStop: () =>
+    fetch(`${BASE}/api/calibration/preview/stop`, { method: 'POST' }).then((r) =>
+      json<{ running: boolean }>(r),
+    ),
   calibrationInfo: () =>
     fetch(`${BASE}/api/calibration/info`).then((r) => json<CalibrationInfo>(r)),
   calibrationShots: () =>

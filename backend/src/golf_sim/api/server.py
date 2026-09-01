@@ -113,6 +113,25 @@ def create_app(
         CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]
     )
 
+    @app.middleware("http")
+    async def log_request_failures(request, call_next):
+        try:
+            response = await call_next(request)
+        except Exception:
+            logger.exception("unhandled request failure: %s %s", request.method, request.url.path)
+            raise
+        expected_preview_wait = response.status_code == 503 and request.url.path.startswith(
+            "/api/capture/preview/"
+        )
+        if response.status_code >= 400 and not expected_preview_wait:
+            logger.error(
+                "request failed: %s %s -> %s",
+                request.method,
+                request.url.path,
+                response.status_code,
+            )
+        return response
+
     @app.get("/api/health")
     def health():
         return {"ready": True}
@@ -193,6 +212,7 @@ def create_app(
                             logger.exception("post-processing failed for session %s", session_id)
                 except Exception as exc:
                     processing[session_id] = f"error: {exc}"
+                    logger.exception("processing failed for session %s", session_id)
 
         processing[session_id] = "running"
         threading.Thread(target=run, daemon=True, name=f"process-{session_id}").start()
@@ -265,6 +285,7 @@ def create_app(
 
     @app.put("/api/config")
     def put_config(new_config: dict):
+        nonlocal config
         # validate before persisting so a bad edit can't brick the app
         try:
             validated = Config.model_validate(new_config)
@@ -276,6 +297,7 @@ def create_app(
         # change -- previously this was never updated, so the "disarm/arm to
         # apply" note below was a lie and only a full app relaunch worked.
         runtime.config = validated
+        config = validated
         return {"status": "saved", "note": "restart capture (disarm/arm) to apply"}
 
     @app.get("/api/capture/preview/{camera}")
@@ -297,6 +319,20 @@ def create_app(
 
     calib_compute: dict = {"state": "idle"}
 
+    @app.post("/api/calibration/preview/start")
+    def calibration_preview_start():
+        try:
+            runtime.start_cameras()
+        except Exception as exc:
+            logger.exception("calibration camera startup failed")
+            raise HTTPException(500, f"camera startup failed: {exc}") from exc
+        return {"running": True}
+
+    @app.post("/api/calibration/preview/stop")
+    def calibration_preview_stop():
+        runtime.stop()
+        return {"running": False}
+
     @app.post("/api/calibration/shot")
     def calibration_shot(body: dict):
         from golf_sim.pose.wizard import mark_calibration_shot
@@ -311,6 +347,7 @@ def create_app(
         try:
             session_dir = runtime.capture_calibration_shot()
         except Exception as exc:
+            logger.exception("calibration capture failed")
             raise HTTPException(500, f"capture failed: {exc}") from exc
         marker = mark_calibration_shot(session_dir, kind, config, for_camera=for_camera)
         return {"id": session_dir.name, **marker}
@@ -348,6 +385,7 @@ def create_app(
                 calib_compute.update(state="done", result=result)
             except Exception as exc:
                 calib_compute.update(state="error", error=str(exc))
+                logger.exception("calibration computation failed")
 
         calib_compute.clear()
         calib_compute.update(state="running", stage="starting")

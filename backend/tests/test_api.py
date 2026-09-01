@@ -411,6 +411,20 @@ def test_preview_requires_running_capture(client):
     assert response.headers["content-type"] == "image/jpeg"
 
 
+def test_calibration_preview_starts_cameras_without_arming_microphone(client):
+    assert client.post("/api/calibration/preview/start").json() == {"running": True}
+    status = client.get("/api/capture/status").json()
+    assert status["running"] is True
+    assert status["armed"] is False
+
+    import time
+
+    time.sleep(0.4)
+    assert client.get("/api/capture/preview/camera_1").status_code == 200
+    assert client.post("/api/calibration/preview/stop").json() == {"running": False}
+    assert client.get("/api/capture/status").json()["running"] is False
+
+
 def test_capture_arm_disarm_and_manual_trigger(client):
     status = client.get("/api/capture/status").json()
     assert status["running"] is False and status["armed"] is False
