@@ -89,6 +89,16 @@ def test_sessions_empty(client):
     assert client.get("/api/sessions").json() == []
 
 
+def test_club_must_be_selected_and_is_exposed_in_capture_status(client):
+    assert client.post("/api/capture/trigger").status_code == 500
+    clubs = client.get("/api/clubs").json()
+    assert {"id": "driver", "label": "Driver"} in clubs
+
+    response = client.put("/api/capture/club", json={"club": "7_iron"})
+    assert response.json() == {"club": "7_iron"}
+    assert client.get("/api/capture/status").json()["selected_club"] == "7_iron"
+
+
 def test_sessions_listing_and_detail(client, config):
     _fake_session(config)
 
@@ -196,6 +206,7 @@ def _wait_for_processing(client, session_id, timeout_s=5.0):
 
 
 def test_auto_process_runs_pipeline_after_capture(client, processor):
+    client.put("/api/capture/club", json={"club": "7_iron"})
     client.post("/api/capture/trigger")
     status = _wait_for_capture(client)
     assert status["last_error"] is None
@@ -237,6 +248,7 @@ def test_auto_process_off_leaves_session_unprocessed(tmp_path, config, processor
 
     test_client, runtime = _make_client(off_config, config_path, processor)
     with test_client:
+        test_client.put("/api/capture/club", json={"club": "7_iron"})
         test_client.post("/api/capture/trigger")
         status = _wait_for_capture(test_client)
         session_id = status["last_session"]
@@ -386,6 +398,7 @@ def test_preview_requires_running_capture(client):
 def test_capture_arm_disarm_and_manual_trigger(client):
     status = client.get("/api/capture/status").json()
     assert status["running"] is False and status["armed"] is False
+    client.put("/api/capture/club", json={"club": "7_iron"})
 
     assert client.post("/api/capture/arm").json() == {"armed": True}
     assert client.get("/api/capture/status").json()["armed"] is True
@@ -407,3 +420,5 @@ def test_capture_arm_disarm_and_manual_trigger(client):
 
     sessions = client.get("/api/sessions").json()
     assert any(s["id"] == status["last_session"] for s in sessions)
+    detail = client.get(f"/api/sessions/{status['last_session']}").json()
+    assert detail["metadata"]["club"] == "7_iron"

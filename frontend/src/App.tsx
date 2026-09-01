@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from './api'
-import type { SessionSummary } from './api'
+import type { SessionDetail, SessionSummary } from './api'
 import ArmControl from './components/ArmControl'
 import CalibrationWizard from './components/CalibrationWizard'
 import SessionView from './components/SessionView'
@@ -9,12 +9,72 @@ import SystemCheck from './components/SystemCheck'
 import './App.css'
 
 type View = 'sessions' | 'settings' | 'calibrate' | 'system-check'
+type Theme = 'dark' | 'light'
+
+const humanizeMetric = (metric: string) => metric.replace(/_(deg|pct)$/, '').replaceAll('_', ' ')
+
+function spokenFeedback(detail: SessionDetail, focusedMetric: string | null): string {
+  const analysis = detail.metrics
+  if (!analysis) return ''
+
+  if (focusedMetric) {
+    const label = humanizeMetric(focusedMetric)
+    const tip = analysis.tips.find((item) => item.metric === focusedMetric)
+    if (tip) return `Your ${label} needs attention. ${tip.text}`
+
+    const metric = analysis.metrics.find((item) => item.name === focusedMetric)
+    if (!metric || metric.value === null) {
+      return `I could not measure your ${label} reliably on this swing.`
+    }
+    const result =
+      metric.in_range === true
+        ? 'is in your target range'
+        : metric.in_range === false
+          ? 'is outside your target range'
+          : 'has been recorded'
+    return `Your ${label} was ${metric.value} ${metric.unit}, and ${result}. Keep working on consistent ${label}.`
+  }
+
+  if (analysis.tips.length > 0) {
+    const tip = analysis.tips[0]
+    return `The main issue is ${humanizeMetric(tip.metric)}. ${tip.text}`
+  }
+  return 'Nice swing. Everything measured was in range.'
+}
 
 export default function App() {
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [selected, setSelected] = useState<string | null>(null)
   const [view, setView] = useState<View>('sessions')
   const [backendUp, setBackendUp] = useState(true)
+  const [theme, setTheme] = useState<Theme>(
+    () => (localStorage.getItem('theme') as Theme | null) ?? 'dark',
+  )
+  const [voiceEnabled, setVoiceEnabled] = useState(
+    () => localStorage.getItem('voice-feedback') !== 'off',
+  )
+  const [focusedMetric, setFocusedMetric] = useState<string | null>(
+    () => localStorage.getItem('voice-metric-focus'),
+  )
+  const voiceEnabledRef = useRef(voiceEnabled)
+  const focusedMetricRef = useRef(focusedMetric)
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme
+    localStorage.setItem('theme', theme)
+  }, [theme])
+
+  useEffect(() => {
+    voiceEnabledRef.current = voiceEnabled
+    localStorage.setItem('voice-feedback', voiceEnabled ? 'on' : 'off')
+    if (!voiceEnabled) window.speechSynthesis.cancel()
+  }, [voiceEnabled])
+
+  useEffect(() => {
+    focusedMetricRef.current = focusedMetric
+    if (focusedMetric) localStorage.setItem('voice-metric-focus', focusedMetric)
+    else localStorage.removeItem('voice-metric-focus')
+  }, [focusedMetric])
 
   const refresh = useCallback(() => {
     api
@@ -29,11 +89,66 @@ export default function App() {
 
   useEffect(refresh, [refresh])
 
+  const speak = useCallback((text: string) => {
+    if (!text || !voiceEnabledRef.current) return
+    window.speechSynthesis.cancel()
+    window.speechSynthesis.speak(new SpeechSynthesisUtterance(text))
+  }, [])
+
+  const announceWhenReady = useCallback(
+    async (sessionId: string) => {
+      for (let attempt = 0; attempt < 300; attempt += 1) {
+        try {
+          const detail = await api.session(sessionId)
+          if (detail.metrics) {
+            speak(spokenFeedback(detail, focusedMetricRef.current))
+            return
+          }
+        } catch {
+          // A newly captured session can briefly appear before its metadata is readable.
+        }
+        await new Promise((resolve) => setTimeout(resolve, 2000))
+      }
+    },
+    [speak],
+  )
+
+  const handleCapture = useCallback(
+    (sessionId: string) => {
+      refresh()
+      setSelected(sessionId)
+      void announceWhenReady(sessionId)
+    },
+    [announceWhenReady, refresh],
+  )
+
+  const focusMetric = useCallback(
+    (metric: string | null) => {
+      setFocusedMetric(metric)
+      speak(metric ? `Voice feedback focused on ${humanizeMetric(metric)}.` : 'Voice feedback will cover the main issue.')
+    },
+    [speak],
+  )
+
   return (
     <div className="app">
       <header>
         <h1>golf swing analyzer</h1>
-        <ArmControl onCapture={refresh} />
+        <ArmControl onCapture={handleCapture} />
+        <label className="voice-toggle">
+          <input
+            type="checkbox"
+            checked={voiceEnabled}
+            onChange={(event) => setVoiceEnabled(event.target.checked)}
+          />
+          voice feedback
+        </label>
+        <button
+          className="theme-toggle"
+          onClick={() => setTheme((current) => (current === 'dark' ? 'light' : 'dark'))}
+        >
+          {theme === 'dark' ? 'light mode' : 'dark mode'}
+        </button>
         <nav className="view-nav">
           <button className={view === 'sessions' ? 'active' : ''} onClick={() => setView('sessions')}>
             sessions
@@ -108,7 +223,11 @@ export default function App() {
           </aside>
           <main>
             {selected ? (
-              <SessionView sessionId={selected} />
+              <SessionView
+                sessionId={selected}
+                focusedMetric={focusedMetric}
+                onFocusMetric={focusMetric}
+              />
             ) : (
               <p className="muted">arm the mic and hit a shot, or use manual capture.</p>
             )}

@@ -61,7 +61,7 @@ class CaptureService:
         for stream in self.streams.values():
             stream.stop()
 
-    def capture_now(self, trigger_time: float | None = None) -> Path:
+    def capture_now(self, trigger_time: float | None = None, club: str | None = None) -> Path:
         """trigger_time defaults to now (manual/dev capture); the audio
         trigger service passes the exact moment it detected the impact so
         the extracted window is anchored to that instant, not to whenever
@@ -82,4 +82,10 @@ class CaptureService:
             clips[role] = resample_to_grid(
                 raw, start_time, duration, fps=self.camera_meta[role]["fps"]
             )
-        return self.writer.write_session(clips, self.camera_meta, pre, duration)
+        return self.writer.write_session(
+            clips,
+            self.camera_meta,
+            pre,
+            duration,
+            extra_metadata={"club": club} if club is not None else None,
+        )

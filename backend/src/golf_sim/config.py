@@ -61,8 +61,53 @@ class ReferenceRange(BaseModel):
     max: float
 
 
+Club = Literal[
+    "driver",
+    "3_wood",
+    "5_wood",
+    "3_iron",
+    "4_iron",
+    "5_iron",
+    "6_iron",
+    "7_iron",
+    "8_iron",
+    "9_iron",
+    "pitching_wedge",
+    "gap_wedge",
+    "sand_wedge",
+    "lob_wedge",
+]
+
+CLUB_LABELS: dict[Club, str] = {
+    "driver": "Driver",
+    "3_wood": "3 wood",
+    "5_wood": "5 wood",
+    "3_iron": "3 iron",
+    "4_iron": "4 iron",
+    "5_iron": "5 iron",
+    "6_iron": "6 iron",
+    "7_iron": "7 iron",
+    "8_iron": "8 iron",
+    "9_iron": "9 iron",
+    "pitching_wedge": "Pitching wedge",
+    "gap_wedge": "Gap wedge",
+    "sand_wedge": "Sand wedge",
+    "lob_wedge": "Lob wedge",
+}
+
+
 class MetricsConfig(BaseModel):
     reference_ranges: dict[str, ReferenceRange]
+    club_profiles: dict[str, dict[str, ReferenceRange]] = Field(default_factory=dict)
+    club_profile_mapping: dict[Club, str] = Field(default_factory=dict)
+
+    def ranges_for_club(self, club: Club | None) -> dict[str, ReferenceRange]:
+        ranges = dict(self.reference_ranges)
+        if club is not None:
+            profile = self.club_profile_mapping.get(club)
+            if profile is not None:
+                ranges.update(self.club_profiles.get(profile, {}))
+        return ranges
 
 
 class AnalysisConfig(BaseModel):

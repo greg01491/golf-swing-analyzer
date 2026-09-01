@@ -17,7 +17,7 @@ from golf_sim.audio.source import AudioSource, SounddeviceMicSource
 from golf_sim.audio.trigger import TriggerDetector
 from golf_sim.capture.service import CaptureService
 from golf_sim.capture.source import CameraSource
-from golf_sim.config import Config
+from golf_sim.config import Club, Config
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +37,7 @@ class CaptureRuntime:
         self._lock = threading.Lock()
         self.last_session_dir: Path | None = None
         self.last_error: str | None = None
+        self.selected_club: Club | None = None
         # Called with the session dir after every successful capture; the API
         # server wires this to auto-processing when processing.auto_process
         # is enabled. Must not raise.
@@ -85,8 +86,12 @@ class CaptureRuntime:
 
     def _on_trigger(self, trigger_time: float) -> None:
         assert self._capture is not None
+        club = self.selected_club
+        if club is None:
+            self.last_error = "select a club before capturing"
+            return
         try:
-            session_dir = self._capture.capture_now(trigger_time)
+            session_dir = self._capture.capture_now(trigger_time, club=club)
             logger.info("captured session %s", session_dir)
         except Exception as exc:  # capture failure must not kill the listener (NFR5)
             self.last_error = str(exc)
@@ -144,7 +149,13 @@ class CaptureRuntime:
         self.stop()
 
     def manual_trigger(self) -> None:
+        if self.selected_club is None:
+            raise ValueError("select a club before capturing")
         if not self.running:
             self.start()
         assert self._audio is not None
         self._audio.manual_trigger()
+
+    def select_club(self, club: Club) -> None:
+        self.selected_club = club
+        self.last_error = None
