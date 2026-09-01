@@ -155,6 +155,7 @@ export default function CalibrationWizard() {
   const [editingDistance, setEditingDistance] = useState(false)
   const [compute, setCompute] = useState<CalibrationComputeStatus | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [savingCapture, setSavingCapture] = useState(false)
 
   const refreshShots = () => api.calibrationShots().then(setShots)
 
@@ -183,6 +184,7 @@ export default function CalibrationWizard() {
   // render cycle
   const capture = async (kind: 'intrinsics' | 'extrinsics', forCamera: string) => {
     setError(null)
+    setSavingCapture(true)
     try {
       // the position capture records both cameras at once, so a per-camera
       // tag would be meaningless there -- only lens shots carry one
@@ -197,6 +199,8 @@ export default function CalibrationWizard() {
     } catch (e) {
       setError(String(e))
       return null
+    } finally {
+      setSavingCapture(false)
     }
   }
 
@@ -391,9 +395,13 @@ export default function CalibrationWizard() {
           )}
           {counting !== null && (
             <div className="countdown-big">
-              {counting}
+              {savingCapture ? 'saving…' : counting}
               <div className="countdown-caption">
-                {capturesThisRun === 0 ? 'get ready' : 'next capture in'}
+                {savingCapture
+                  ? 'processing both cameras — this usually takes about 10 seconds'
+                  : capturesThisRun === 0
+                    ? 'get ready'
+                    : 'next capture in'}
               </div>
             </div>
           )}
@@ -423,7 +431,7 @@ export default function CalibrationWizard() {
             ))}
           </select>
           {autoCapturing ? (
-            <button className="countdown-btn" onClick={stopCapturing}>
+            <button className="countdown-btn" onClick={stopCapturing} disabled={savingCapture}>
               stop capturing
             </button>
           ) : (

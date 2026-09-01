@@ -350,12 +350,24 @@ def create_app(
         valid_roles = {dev.role for dev in config.cameras.devices}
         if for_camera is not None and for_camera not in valid_roles:
             raise HTTPException(422, f"camera must be one of {sorted(valid_roles)}")
+        logger.info("calibration capture starting: kind=%s camera=%s", kind, for_camera)
         try:
             session_dir = runtime.capture_calibration_shot()
         except Exception as exc:
             logger.exception("calibration capture failed")
             raise HTTPException(500, f"capture failed: {exc}") from exc
-        marker = mark_calibration_shot(session_dir, kind, config, for_camera=for_camera)
+        try:
+            marker = mark_calibration_shot(session_dir, kind, config, for_camera=for_camera)
+        except Exception:
+            logger.exception("calibration board analysis failed for %s", session_dir.name)
+            raise
+        logger.info(
+            "calibration capture saved: id=%s kind=%s camera=%s board_frames=%s",
+            session_dir.name,
+            kind,
+            for_camera,
+            marker["board_frames_detected"],
+        )
         return {"id": session_dir.name, **marker}
 
     @app.get("/api/calibration/shots")
