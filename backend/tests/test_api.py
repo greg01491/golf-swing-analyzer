@@ -89,6 +89,22 @@ def test_sessions_empty(client):
     assert client.get("/api/sessions").json() == []
 
 
+def test_startup_endpoints_expose_backend_and_setup_readiness(client):
+    assert client.get("/api/health").json() == {"ready": True}
+    startup = client.get("/api/startup").json()
+    assert set(startup) == {
+        "ready",
+        "pose_ready",
+        "models_ready",
+        "calibration_ready",
+        "audio_ready",
+        "audio_device",
+        "messages",
+    }
+    assert startup["calibration_ready"] is False
+    assert any("Calibrate" in message for message in startup["messages"])
+
+
 def test_club_must_be_selected_and_is_exposed_in_capture_status(client):
     assert client.post("/api/capture/trigger").status_code == 500
     clubs = client.get("/api/clubs").json()

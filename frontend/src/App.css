@@ -375,6 +375,26 @@ ol li {
   background: var(--danger-bg);
 }
 
+.setup-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  color: var(--warning-text);
+  background: var(--warning-bg);
+  border-bottom: 1px solid var(--warning-border);
+}
+
+.setup-banner span {
+  flex: 1;
+}
+
+.setup-required {
+  color: var(--warning-text);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 .quality-warning {
   border: 1px solid var(--warning-border);
   background: var(--warning-bg);

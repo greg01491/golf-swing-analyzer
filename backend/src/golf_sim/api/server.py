@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import importlib
 import logging
 import os
 import threading
@@ -111,6 +112,62 @@ def create_app(
     app.add_middleware(
         CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]
     )
+
+    @app.get("/api/health")
+    def health():
+        return {"ready": True}
+
+    @app.get("/api/startup")
+    def startup():
+        from golf_sim.audio.devices import resolve_input_device
+        from golf_sim.pose.calibrate import calibration_status
+
+        messages = []
+        dependency_error = None
+        try:
+            for module in ("Pose2Sim", "opensim", "openvino", "onnxruntime"):
+                importlib.import_module(module)
+            from imageio_ffmpeg import get_ffmpeg_exe
+
+            get_ffmpeg_exe()
+            pose_ready = True
+        except Exception as exc:
+            pose_ready = False
+            dependency_error = str(exc)
+        if not pose_ready:
+            messages.append(f"The 3D pose engine is unavailable: {dependency_error}")
+
+        model_root = Path(os.path.expanduser(os.environ.get("TORCH_HOME", "~/.cache/rtmlib")))
+        models_ready = len(list((model_root / "hub" / "checkpoints").glob("*.onnx"))) >= 2
+        if not models_ready:
+            messages.append("The offline pose models are missing from this installation.")
+
+        calibration = calibration_status(config.calibration)
+        calibration_ready = calibration.exists and not calibration.broken
+        if not calibration.exists:
+            messages.append("Calibrate both cameras before capturing a swing.")
+        elif calibration.broken:
+            messages.append("The saved camera calibration is unusable; recalibrate both cameras.")
+
+        try:
+            audio_device = resolve_input_device(config.audio_trigger.device)
+            audio_ready = True
+        except Exception as exc:
+            audio_device = None
+            audio_ready = False
+            messages.append(f"Microphone unavailable: {exc}")
+
+        data_dir.mkdir(parents=True, exist_ok=True)
+        return {
+            "ready": pose_ready and models_ready and calibration_ready and audio_ready,
+            "pose_ready": pose_ready,
+            "models_ready": models_ready,
+            "calibration_ready": calibration_ready,
+            "audio_ready": audio_ready,
+            "audio_device": audio_device,
+            "messages": messages,
+        }
+
     processing: dict[str, str] = {}  # session_id -> "running" | "done" | "error: ..."
     # Pose estimation is CPU-heavy; serialize so back-to-back captures queue
     # instead of thrashing the machine while it's also buffering cameras.
@@ -385,7 +442,13 @@ def create_app(
 def main() -> None:
     import uvicorn
 
-    config = load_config()
+    config_path = Path(os.environ.get("GOLF_SIM_CONFIG_PATH", DEFAULT_CONFIG_PATH))
+    config = load_config(config_path)
+    if data_dir := os.environ.get("GOLF_SIM_DATA_DIR"):
+        config.storage.data_dir = data_dir
+        config.storage.db_file = str(Path(data_dir) / "sessions.db")
+    if calibration_dir := os.environ.get("GOLF_SIM_CALIBRATION_DIR"):
+        config.calibration.dir = calibration_dir
 
     # Pose2Sim's filtering module deadlocks if its qtagg/plt.figure() probe
     # first runs on a worker thread (which is how background processing runs).
@@ -401,7 +464,11 @@ def main() -> None:
         except Exception:
             logger.warning("pose stack preload skipped", exc_info=True)
 
-    uvicorn.run(create_app(config), host=config.api.host, port=config.api.port)
+    uvicorn.run(
+        create_app(config, config_path=config_path),
+        host=config.api.host,
+        port=config.api.port,
+    )
 
 
 if __name__ == "__main__":

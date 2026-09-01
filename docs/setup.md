@@ -110,6 +110,20 @@ Recalibrate whenever a camera moves. The app flags calibration older than
 
 ## 6. Run
 
+### Installed desktop app
+
+The Windows installer contains Electron, the Python backend, Pose2Sim, OpenSim,
+OpenVINO, and ffmpeg support. Opening **Golf Swing Analyzer** starts and monitors
+the backend automatically; no terminal or separately installed Python is
+required. Sessions, settings, logs, and the one-time camera calibration are
+stored under the user's application-data folder so upgrades do not remove them.
+
+On a fresh installation, capture remains disabled until the startup readiness
+banner confirms that the pose engine and microphone are available and the
+two-camera calibration workflow has been completed.
+
+### Development
+
 ```bash
 # Terminal 1 — backend
 cd backend && ./.venv/Scripts/activate

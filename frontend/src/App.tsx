@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from './api'
-import type { SessionDetail, SessionSummary } from './api'
+import type { SessionDetail, SessionSummary, StartupStatus } from './api'
 import ArmControl from './components/ArmControl'
 import CalibrationWizard from './components/CalibrationWizard'
 import SessionView from './components/SessionView'
@@ -47,6 +47,7 @@ export default function App() {
   const [selected, setSelected] = useState<string | null>(null)
   const [view, setView] = useState<View>('sessions')
   const [backendUp, setBackendUp] = useState(true)
+  const [startup, setStartup] = useState<StartupStatus | null>(null)
   const [theme, setTheme] = useState<Theme>(
     () => (localStorage.getItem('theme') as Theme | null) ?? 'dark',
   )
@@ -88,6 +89,24 @@ export default function App() {
   }, [])
 
   useEffect(refresh, [refresh])
+
+  useEffect(() => {
+    const update = () => {
+      api
+        .startup()
+        .then((status) => {
+          setBackendUp(true)
+          setStartup(status)
+        })
+        .catch(() => {
+          setBackendUp(false)
+          setStartup(null)
+        })
+    }
+    update()
+    const interval = setInterval(update, 5000)
+    return () => clearInterval(interval)
+  }, [])
 
   const speak = useCallback((text: string) => {
     if (!text || !voiceEnabledRef.current) return
@@ -134,7 +153,7 @@ export default function App() {
     <div className="app">
       <header>
         <h1>golf swing analyzer</h1>
-        <ArmControl onCapture={handleCapture} />
+        <ArmControl captureReady={startup?.ready ?? false} onCapture={handleCapture} />
         <label className="voice-toggle">
           <input
             type="checkbox"
@@ -170,7 +189,27 @@ export default function App() {
 
       {!backendUp && (
         <div className="error banner">
-          backend not reachable — start it with: python -m golf_sim.api.server
+          The analysis service is unavailable. Restart the desktop app; startup logs are saved in
+          the app data folder.
+        </div>
+      )}
+      {backendUp && startup && !startup.ready && (
+        <div className="setup-banner">
+          <strong>Complete setup before capturing a swing.</strong>
+          <span>{startup.messages.join(' ')}</span>
+          <button
+            onClick={() =>
+              setView(
+                !startup.calibration_ready
+                  ? 'calibrate'
+                  : !startup.audio_ready
+                    ? 'settings'
+                    : 'system-check',
+              )
+            }
+          >
+            {!startup.calibration_ready ? 'open calibration' : 'review setup'}
+          </button>
         </div>
       )}
 

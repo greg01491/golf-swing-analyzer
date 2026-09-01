@@ -81,6 +81,16 @@ export interface CaptureStatus {
   selected_club: string | null
 }
 
+export interface StartupStatus {
+  ready: boolean
+  pose_ready: boolean
+  models_ready: boolean
+  calibration_ready: boolean
+  audio_ready: boolean
+  audio_device: number | null
+  messages: string[]
+}
+
 export interface CalibrationInfo {
   exists: boolean
   file: string | null
@@ -151,6 +161,7 @@ async function json<T>(res: Response): Promise<T> {
 
 export const api = {
   clubs: () => fetch(`${BASE}/api/clubs`).then((r) => json<ClubOption[]>(r)),
+  startup: () => fetch(`${BASE}/api/startup`).then((r) => json<StartupStatus>(r)),
   sessions: () => fetch(`${BASE}/api/sessions`).then((r) => json<SessionSummary[]>(r)),
   session: (id: string) =>
     fetch(`${BASE}/api/sessions/${id}`).then((r) => json<SessionDetail>(r)),

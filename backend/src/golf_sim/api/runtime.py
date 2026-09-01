@@ -122,7 +122,11 @@ class CaptureRuntime:
                 cooldown_s=self.config.audio_trigger.trigger_cooldown_s,
             )
             audio = AudioTriggerService(audio_source, detector, self._on_trigger)
-            audio.start()
+            try:
+                audio.start()
+            except Exception:
+                capture.stop()
+                raise
             self._capture, self._audio = capture, audio
 
     def stop(self) -> None:

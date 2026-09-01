@@ -19,6 +19,9 @@ npm-debug.log*
 
 # --- Data / sessions (local captures, not checked in) ---
 data/*
+backend/build/
+backend/dist/*
+backend/runtime-models/*
 !data/.gitkeep
 
 # --- Rig calibration (machine/rig-specific, not checked in) ---

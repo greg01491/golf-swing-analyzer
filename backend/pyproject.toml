@@ -43,6 +43,9 @@ dev = [
 pose = [
     "pose2sim>=0.10",
 ]
+packaging = [
+    "pyinstaller>=6.0",
+]
 
 [build-system]
 requires = ["setuptools>=68"]
