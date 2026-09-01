@@ -83,7 +83,7 @@ export default function SessionView({ sessionId, focusedMetric, onFocusMetric }:
         api.session(sessionId).then(setDetail)
         api.landmarks(sessionId).then(setLandmarks).catch(() => setLandmarks(null))
       }
-    }, 2000)
+    }, 500)
     return () => clearInterval(id)
   }, [processState, sessionId])
 
