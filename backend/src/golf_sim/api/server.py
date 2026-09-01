@@ -291,6 +291,7 @@ def create_app(
             validated = Config.model_validate(new_config)
         except Exception as exc:
             raise HTTPException(422, f"invalid config: {exc}") from exc
+        preview_only = runtime.running and not runtime.armed
         _write_config_preserving_comments(Path(config_path), new_config)
         # keep the live runtime's config in sync so disarm/arm (which now
         # fully tears down and rebuilds CaptureService) actually picks up the
@@ -298,6 +299,10 @@ def create_app(
         # apply" note below was a lie and only a full app relaunch worked.
         runtime.config = validated
         config = validated
+        if preview_only:
+            runtime.stop()
+            runtime.start_cameras()
+            return {"status": "saved", "note": "camera preview restarted with the new settings"}
         return {"status": "saved", "note": "restart capture (disarm/arm) to apply"}
 
     @app.get("/api/capture/preview/{camera}")
@@ -319,6 +324,7 @@ def create_app(
 
     calib_compute: dict = {"state": "idle"}
 
+    @app.post("/api/capture/preview/start")
     @app.post("/api/calibration/preview/start")
     def calibration_preview_start():
         try:
@@ -506,6 +512,7 @@ def main() -> None:
         create_app(config, config_path=config_path),
         host=config.api.host,
         port=config.api.port,
+        access_log=False,
     )
 
 

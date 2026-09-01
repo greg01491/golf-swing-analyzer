@@ -164,18 +164,6 @@ export default function CalibrationWizard() {
   }, [])
 
   useEffect(() => {
-    if (distance === null || editingDistance) return
-    let active = true
-    api.calibrationPreviewStart().catch((e) => {
-      if (active) setError(String(e))
-    })
-    return () => {
-      active = false
-      api.calibrationPreviewStop().catch((e) => console.error(e))
-    }
-  }, [distance, editingDistance])
-
-  useEffect(() => {
     if (compute?.state !== 'running') return
     const id = setInterval(async () => {
       const s = await api.calibrationComputeStatus()

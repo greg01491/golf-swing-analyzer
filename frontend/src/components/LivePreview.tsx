@@ -5,6 +5,10 @@ export default function LivePreview({ camera, label }: { camera: string; label: 
   const [tick, setTick] = useState(0)
   const [failed, setFailed] = useState(false)
   useEffect(() => {
+    api.previewStart().catch((error) => {
+      console.error(error)
+      setFailed(true)
+    })
     const id = setInterval(() => setTick((t) => t + 1), 400)
     return () => clearInterval(id)
   }, [])

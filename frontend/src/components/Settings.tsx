@@ -50,7 +50,7 @@ export default function Settings() {
     setMessage(null)
     try {
       const res = await api.saveConfig(config)
-      setMessage(`saved — ${res.status === 'saved' ? 'disarm/arm to apply' : res.status}`)
+      setMessage(`saved — ${res.note}`)
     } catch (e) {
       setMessage(String(e))
     }
@@ -100,9 +100,8 @@ export default function Settings() {
           If a camera is physically mounted sideways or upside down, use rotation to correct
           it — this fixes the saved footage itself (not just the preview), since a rotated
           person confuses the pose-tracking model. The preview below shows the currently
-          <em> running</em> orientation (arm capture first if it shows "no signal"); after
-          changing rotation, save settings and disarm/arm to apply it, then check the preview
-          again.
+          <em> running</em> orientation. The cameras start automatically when this screen opens,
+          and saving restarts the preview with your changes.
         </p>
         {config.cameras.devices.map((dev: Cfg, i: number) => (
           <div key={i} className="camera-config">

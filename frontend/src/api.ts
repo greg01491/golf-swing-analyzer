@@ -190,7 +190,7 @@ export const api = {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(config),
-    }).then((r) => json<{ status: string }>(r)),
+    }).then((r) => json<{ status: string; note: string }>(r)),
   captureStatus: () => fetch(`${BASE}/api/capture/status`).then((r) => json<CaptureStatus>(r)),
   arm: () => fetch(`${BASE}/api/capture/arm`, { method: 'POST' }).then((r) => json<unknown>(r)),
   disarm: () =>
@@ -204,6 +204,10 @@ export const api = {
       body: JSON.stringify({ club }),
     }).then((r) => json<{ club: string }>(r)),
   previewUrl: (camera: string) => `${BASE}/api/capture/preview/${camera}`,
+  previewStart: () =>
+    fetch(`${BASE}/api/capture/preview/start`, { method: 'POST' }).then((r) =>
+      json<{ running: boolean }>(r),
+    ),
   calibrationBoardUrl: () => `${BASE}/api/calibration/board.png`,
   calibrationPreviewStart: () =>
     fetch(`${BASE}/api/calibration/preview/start`, { method: 'POST' }).then((r) =>

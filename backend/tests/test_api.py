@@ -412,7 +412,7 @@ def test_preview_requires_running_capture(client):
 
 
 def test_calibration_preview_starts_cameras_without_arming_microphone(client):
-    assert client.post("/api/calibration/preview/start").json() == {"running": True}
+    assert client.post("/api/capture/preview/start").json() == {"running": True}
     status = client.get("/api/capture/status").json()
     assert status["running"] is True
     assert status["armed"] is False

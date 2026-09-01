@@ -117,8 +117,9 @@ OpenVINO, and ffmpeg support. Opening **Golf Swing Analyzer** starts and monitor
 the backend automatically; no terminal or separately installed Python is
 required. Sessions, settings, logs, and the one-time camera calibration are
 stored under the user's application-data folder so upgrades do not remove them.
-The calibration wizard starts both camera previews automatically and pre-fills
-the current rig's measured camera distance of `3.115 m`.
+Calibration and Settings start both camera previews automatically and keep the
+shared camera service running while the app is open. The calibration wizard
+pre-fills the current rig's measured camera distance of `3.115 m`.
 
 Backend, processing, and calibration failures are recorded in
 `%APPDATA%\golf-swing-analyzer\logs\backend.log`; renderer, API-client, and
