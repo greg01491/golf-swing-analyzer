@@ -36,10 +36,12 @@ class FakeProcessor:
 
     def __init__(self):
         self.calls = []
+        self.finalizer = None
 
     def __call__(self, session_dir, config):
         self.calls.append(session_dir.name)
         (session_dir / "metrics.json").write_text(json.dumps({"metrics": [], "tips": []}))
+        return self.finalizer
 
 
 @pytest.fixture
@@ -203,6 +205,27 @@ def test_auto_process_runs_pipeline_after_capture(client, processor):
     assert processor.calls == [session_id]
     detail = client.get(f"/api/sessions/{session_id}").json()
     assert detail["metrics"] == {"metrics": [], "tips": []}
+
+
+def test_results_are_ready_before_optional_media_finalization(client, config, processor):
+    import threading
+
+    finalizer_started = threading.Event()
+    release_finalizer = threading.Event()
+
+    def finalize():
+        finalizer_started.set()
+        release_finalizer.wait(timeout=5)
+
+    processor.finalizer = finalize
+    session_dir = _fake_session(config, with_metrics=False)
+    session_id = session_dir.name
+
+    client.post(f"/api/sessions/{session_id}/process")
+    assert _wait_for_processing(client, session_id) == "done"
+    assert finalizer_started.wait(timeout=1)
+    assert not release_finalizer.is_set()
+    release_finalizer.set()
 
 
 def test_auto_process_off_leaves_session_unprocessed(tmp_path, config, processor):

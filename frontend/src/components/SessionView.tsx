@@ -63,7 +63,7 @@ export default function SessionView({ sessionId }: { sessionId: string }) {
         api.session(sessionId).then(setDetail)
         api.landmarks(sessionId).then(setLandmarks).catch(() => setLandmarks(null))
       }
-    }, 2000)
+    }, 500)
     return () => clearInterval(id)
   }, [processState, sessionId])
 

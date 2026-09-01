@@ -86,17 +86,21 @@ class CaptureRuntime:
     def _on_trigger(self, trigger_time: float) -> None:
         assert self._capture is not None
         try:
-            self.last_session_dir = self._capture.capture_now(trigger_time)
-            logger.info("captured session %s", self.last_session_dir)
+            session_dir = self._capture.capture_now(trigger_time)
+            logger.info("captured session %s", session_dir)
         except Exception as exc:  # capture failure must not kill the listener (NFR5)
             self.last_error = str(exc)
             logger.exception("capture failed")
             return
         if self.on_session is not None:
             try:
-                self.on_session(self.last_session_dir)
+                self.on_session(session_dir)
             except Exception:  # processing kickoff failure must not kill the listener
                 logger.exception("on_session hook failed")
+        # Publish only after the processing hook has marked the session as
+        # running. Otherwise the UI can discover it in this narrow window,
+        # observe an idle status, and never poll for the completed results.
+        self.last_session_dir = session_dir
 
     def start(self) -> None:
         with self._lock:
