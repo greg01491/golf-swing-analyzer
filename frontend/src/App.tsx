@@ -213,9 +213,21 @@ export default function App() {
         </div>
       )}
 
-      {view === 'settings' && <Settings />}
-      {view === 'calibrate' && <CalibrationWizard />}
-      {view === 'system-check' && <SystemCheck />}
+      {view === 'settings' && (
+        <div className="view-scroll">
+          <Settings />
+        </div>
+      )}
+      {view === 'calibrate' && (
+        <div className="view-scroll">
+          <CalibrationWizard />
+        </div>
+      )}
+      {view === 'system-check' && (
+        <div className="view-scroll">
+          <SystemCheck />
+        </div>
+      )}
       {view === 'sessions' && (
         <div className="main">
           <aside>

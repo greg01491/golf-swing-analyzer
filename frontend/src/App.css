@@ -42,13 +42,16 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: system-ui, sans-serif;
+  font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
+  font-size: 14px;
+  line-height: 1.45;
   transition:
     background 0.15s ease,
     color 0.15s ease;
 }
 
 .app {
+  flex: 1;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
@@ -57,15 +60,26 @@ body {
 header {
   display: flex;
   align-items: center;
-  gap: 16px;
+  flex-wrap: wrap;
+  gap: 10px 12px;
   padding: 10px 16px;
   border-bottom: 1px solid var(--border);
+  background: var(--panel);
 }
 
 header h1 {
-  font-size: 18px;
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
   margin: 0;
   margin-right: auto;
+  white-space: nowrap;
+}
+
+.view-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 button {
@@ -411,6 +425,7 @@ ol li {
 .arm-control {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
 }
 
@@ -429,11 +444,8 @@ ol li {
   transition: width 0.15s;
 }
 
-.settings {
-  max-width: 640px;
-  padding: 16px;
-}
-
+/* Generic label+input row, shared by the calibration wizard. Settings
+   overrides this with its own denser, divided variant. */
 .field {
   display: flex;
   justify-content: space-between;
@@ -448,40 +460,255 @@ ol li {
   background: var(--bg);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 4px 8px;
-}
-
-.camera-config {
-  border-top: 1px solid var(--border);
-  padding-top: 8px;
-  margin-top: 8px;
-}
-
-.range-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 6px;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-family: inherit;
   font-size: 14px;
 }
 
-.range-row span {
-  flex: 1;
+.field input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--focus-bg);
 }
 
-.range-row .field input {
-  width: 80px;
+/* ---- settings ---- */
+
+.settings {
+  max-width: 860px;
+  margin: 0 auto;
+  padding-bottom: 24px;
 }
 
-.view-nav {
+.settings-header {
+  margin-bottom: 18px;
+}
+
+.settings-header h2 {
+  margin: 0 0 4px;
+  font-size: 20px;
+}
+
+.settings-intro {
+  margin: 0;
+  max-width: 64ch;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.settings-section {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px 18px;
+  margin-bottom: 14px;
+}
+
+.settings-section > h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.section-hint {
+  margin: 6px 0 0;
+  max-width: 70ch;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.field-list {
+  margin-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.settings .field {
   display: flex;
-  gap: 6px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin: 0;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+}
+
+.settings .field:last-child {
+  border-bottom: none;
+}
+
+.field-text {
+  min-width: 0;
+}
+
+.field-label {
+  display: block;
+  font-weight: 500;
+}
+
+.field-hint {
+  display: block;
+  margin-top: 2px;
+  max-width: 58ch;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.field-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.field-unit {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.settings input[type='number'],
+.settings select {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 14px;
+  font-family: inherit;
+}
+
+.settings input[type='number'] {
+  width: 108px;
+  text-align: right;
+}
+
+.settings input[type='number']:focus,
+.settings select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--focus-bg);
+}
+
+.settings input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.camera-config {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-top: 12px;
+}
+
+.camera-config-name {
+  font-size: 13px;
+  font-weight: 650;
+  text-transform: capitalize;
+}
+
+/* The camera numeric inputs are short, so a single column wasted the row and
+   pushed the panel taller than the viewport. */
+.camera-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 0 24px;
+  margin-top: 4px;
+}
+
+.camera-fields .field {
+  gap: 12px;
+}
+
+.range-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 16px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+}
+
+.range-row:last-child {
+  border-bottom: none;
+}
+
+.range-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  text-transform: capitalize;
+}
+
+.range-row .field {
+  gap: 8px;
+  padding: 0;
+  border-bottom: none;
+}
+
+.range-row input[type='number'] {
+  width: 88px;
+}
+
+.settings-actions {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 18px;
+  padding: 12px 0;
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+}
+
+.settings-actions .save-btn {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg);
+  font-weight: 650;
+  padding: 8px 20px;
+}
+
+.settings-actions .save-btn:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.save-message {
+  margin: 0;
+  font-size: 13px;
+}
+
+@media (max-width: 720px) {
+  .settings .field {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .range-row {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+}
+
+/* Settings, the calibration wizard and system check render outside <main>,
+   so they need their own scroll region -- otherwise long pages ran past the
+   bottom of the window with nothing to scroll and no side padding. */
+.view-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px;
 }
 
 .wizard {
   max-width: 760px;
-  padding: 16px;
+  margin: 0 auto;
 }
 
 .calib-status {
