@@ -115,3 +115,81 @@ def test_write_calib_toml_is_readable_by_pose2sim_convention(tmp_path):
         assert len(calib[cam]["translation"]) == 3
     assert calib["camera_1"]["rotation"] == [0.0, 0.0, 0.0]
     assert calib["metadata"]["n_correspondences"] == 1234
+
+
+# --- intrinsics fitting -------------------------------------------------
+
+
+_BOARD = (4, 7)
+_SQUARE_MM = 28.4
+
+
+def _board_object_points():
+    rows, cols = _BOARD
+    objp = np.zeros((rows * cols, 3), np.float32)
+    objp[:, :2] = np.mgrid[0:rows, 0:cols].T.reshape(-1, 2) * _SQUARE_MM / 1000.0
+    return objp
+
+
+def _synthetic_board_views(n_good=30, n_bad=6, seed=11, k3=0.0):
+    """Board views from a known wide-angle lens, plus a few 'blurred' ones.
+
+    Mirrors the live rig: most views are clean, a handful are badly off.
+    """
+    rng = np.random.default_rng(seed)
+    w, h = 720, 1280
+    K = np.array([[520.0, 0, w / 2], [0, 520.0, h / 2], [0, 0, 1.0]])
+    dist = np.array([-0.41, 0.21, 0.0022, 0.00016, k3])
+    objp = _board_object_points()
+
+    views = []
+    for i in range(n_good + n_bad):
+        rvec = rng.uniform(-0.45, 0.45, 3)
+        tvec = np.array([rng.uniform(-0.05, 0.05), rng.uniform(-0.05, 0.05), rng.uniform(0.35, 0.6)])
+        projected, _ = cv2.projectPoints(objp, rvec, tvec, K, dist)
+        corners = projected.reshape(-1, 1, 2).astype(np.float32)
+        if i >= n_good:  # motion-blurred / mis-localised corners
+            corners = corners + rng.normal(0, 6.0, corners.shape).astype(np.float32)
+        views.append((corners, (w, h)))
+    return views, K, dist
+
+
+def _patch_corners(monkeypatch, views):
+    def fake_find(clip, corners_nb):
+        yield from views
+
+    monkeypatch.setattr(rig_calibration, "find_board_corners", fake_find)
+
+
+def test_intrinsics_reject_outlier_views_instead_of_failing(monkeypatch, tmp_path):
+    """Regression: 12 bad views out of 191 dragged the live rig's wide camera
+    to 7.1px and tripped the 'lens calibration is poor' guard, even though the
+    other 179 fitted to 0.48px. Bad views must be dropped, not fatal."""
+    views, _, _ = _synthetic_board_views()
+    _patch_corners(monkeypatch, views)
+
+    result = calibrate_intrinsics([tmp_path / "camera_2.mp4"], _BOARD, _SQUARE_MM)
+
+    assert result.rms_error < 1.0, f"outliers still dominate the fit ({result.rms_error:.2f}px)"
+    assert result.n_views < len(views), "no outlier views were dropped"
+    assert result.n_views >= 30
+
+
+def test_stored_distortions_are_the_model_that_was_fitted(monkeypatch, tmp_path):
+    """Regression: the fit produced 5 coefficients but only 4 were stored, so
+    the saved lens model was not the fitted one -- k3 was -63.6 on the live
+    wide camera. The stored model must reproduce the board views."""
+    views, _, _ = _synthetic_board_views(n_good=30, n_bad=0, k3=-3.0)
+    _patch_corners(monkeypatch, views)
+
+    result = calibrate_intrinsics([tmp_path / "camera_2.mp4"], _BOARD, _SQUARE_MM)
+
+    assert len(result.distortions) == 4
+    objp = _board_object_points()
+    worst = 0.0
+    for corners, _size in views:
+        ok, rvec, tvec = cv2.solvePnP(objp, corners, result.matrix, result.distortions)
+        assert ok
+        projected, _ = cv2.projectPoints(objp, rvec, tvec, result.matrix, result.distortions)
+        worst = max(worst, cv2.norm(corners, projected.reshape(corners.shape), cv2.NORM_L2) / len(objp))
+    assert worst < 1.0, f"stored intrinsics do not reproduce the views ({worst:.2f}px)"

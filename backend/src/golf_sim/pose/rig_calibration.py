@@ -50,6 +50,22 @@ class CalibrationDataError(RuntimeError):
     pass
 
 
+#: A view whose reprojection error exceeds max(3x the median, this) is treated
+#: as a bad capture -- motion blur, or the board clipped by the frame edge.
+_OUTLIER_FLOOR_PX = 0.5
+_MIN_VIEWS_AFTER_REJECTION = 12
+_MAX_REJECTION_ROUNDS = 3
+
+
+def _per_view_errors(object_points, image_points, matrix, dist, rvecs, tvecs) -> np.ndarray:
+    """Mean reprojection error for each board view, in pixels."""
+    errors = []
+    for objp, imgp, rvec, tvec in zip(object_points, image_points, rvecs, tvecs, strict=True):
+        projected, _ = cv2.projectPoints(objp, rvec, tvec, matrix, dist)
+        errors.append(cv2.norm(imgp, projected.reshape(imgp.shape), cv2.NORM_L2) / len(projected))
+    return np.array(errors)
+
+
 def calibrate_intrinsics(
     clips: list[Path], corners_nb: tuple[int, int], square_size_mm: float
 ) -> CameraIntrinsics:
@@ -70,10 +86,34 @@ def calibrate_intrinsics(
             "need at least 6. Hold the board closer to the lens (about arm's length), "
             "well lit, tilting slowly."
         )
+
+    # Fix k3 at zero: the Pose2Sim Calib toml stores exactly four distortion
+    # coefficients, so fitting a fifth and then slicing it off would persist a
+    # lens model that was never fitted. On the live rig k3 came out at -63.6
+    # for the wide camera, so that truncation was badly wrong, not cosmetic.
+    flags = cv2.CALIB_FIX_K3
     object_points = [object_points_single] * len(image_points)
-    rms, K, dist, _, _ = cv2.calibrateCamera(object_points, image_points, size, None, None)
+    rms, matrix, dist, rvecs, tvecs = cv2.calibrateCamera(
+        object_points, image_points, size, None, None, flags=flags
+    )
+
+    # A few bad views can dominate the fit: on the live rig 12 blurred views
+    # out of 191 pushed the wide camera to 7.1px, which tripped the "poor
+    # calibration" guard, while the other 179 fitted to 0.48px. Drop the
+    # outliers and refit rather than rejecting a perfectly usable capture set.
+    for _ in range(_MAX_REJECTION_ROUNDS):
+        errors = _per_view_errors(object_points, image_points, matrix, dist, rvecs, tvecs)
+        keep = errors <= max(float(np.median(errors)) * 3, _OUTLIER_FLOOR_PX)
+        if keep.all() or int(keep.sum()) < _MIN_VIEWS_AFTER_REJECTION:
+            break
+        image_points = [p for p, keeping in zip(image_points, keep, strict=True) if keeping]
+        object_points = [object_points_single] * len(image_points)
+        rms, matrix, dist, rvecs, tvecs = cv2.calibrateCamera(
+            object_points, image_points, size, None, None, flags=flags
+        )
+
     return CameraIntrinsics(
-        matrix=K,
+        matrix=matrix,
         distortions=dist.ravel()[:4],
         size=size,
         rms_error=float(rms),
