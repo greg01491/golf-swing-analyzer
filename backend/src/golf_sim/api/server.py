@@ -152,6 +152,19 @@ def create_app(
         CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]
     )
 
+    def _is_expected_pending(path: str, status: int) -> bool:
+        """True for 4xx/5xx the UI polls for on purpose while it waits.
+
+        The preview endpoint answers 503 until the cameras warm up, and
+        landmarks answers 404 until processing has produced 3D data --
+        SessionView asks on mount and swallows it. Logging these at ERROR
+        buried the failures that matter: eleven captures in a row each logged
+        a routine landmarks 404, and the one that genuinely failed to
+        triangulate was lost in the noise."""
+        if status == 503 and path.startswith("/api/capture/preview/"):
+            return True
+        return status == 404 and path.startswith("/api/sessions/") and path.endswith("/landmarks")
+
     @app.middleware("http")
     async def log_request_failures(request, call_next):
         try:
@@ -159,11 +172,14 @@ def create_app(
         except Exception:
             logger.exception("unhandled request failure: %s %s", request.method, request.url.path)
             raise
-        expected_preview_wait = response.status_code == 503 and request.url.path.startswith(
-            "/api/capture/preview/"
-        )
-        if response.status_code >= 400 and not expected_preview_wait:
-            logger.error(
+        if response.status_code >= 400:
+            level = (
+                logging.DEBUG
+                if _is_expected_pending(request.url.path, response.status_code)
+                else logging.ERROR
+            )
+            logger.log(
+                level,
                 "request failed: %s %s -> %s",
                 request.method,
                 request.url.path,

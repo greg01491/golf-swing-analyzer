@@ -1,4 +1,5 @@
 import json
+import logging
 from pathlib import Path
 
 import pytest
@@ -548,3 +549,30 @@ def test_failures_without_a_message_still_explain_themselves(tmp_path, config, p
         assert detail.rstrip().rstrip(":") != "failed to arm"
         assert "AssertionError" in detail
     runtime.stop()
+
+
+def test_pending_landmarks_404_is_not_logged_as_an_error(client, config, caplog):
+    """SessionView asks for landmarks the moment a capture appears and swallows
+    the 404 until processing finishes. Logging that at ERROR meant every
+    capture produced a fake "request failed", which buried the captures that
+    really did fail."""
+    _fake_session(config, session_id="20260101T000000Z-nolm", with_metrics=False)
+
+    with caplog.at_level(logging.DEBUG, logger="golf_sim.api.server"):
+        response = client.get("/api/sessions/20260101T000000Z-nolm/landmarks")
+
+    assert response.status_code == 404
+    records = [r for r in caplog.records if "request failed" in r.getMessage()]
+    assert records, "the response should still be logged, just not as an error"
+    assert all(r.levelno == logging.DEBUG for r in records), (
+        f"expected DEBUG, got {[r.levelname for r in records]}"
+    )
+
+
+def test_genuine_failures_are_still_logged_as_errors(client, caplog):
+    with caplog.at_level(logging.DEBUG, logger="golf_sim.api.server"):
+        response = client.get("/api/sessions/does-not-exist")
+
+    assert response.status_code == 404
+    records = [r for r in caplog.records if "request failed" in r.getMessage()]
+    assert records and any(r.levelno == logging.ERROR for r in records)

@@ -21,7 +21,8 @@ _TIP_RULES: dict[str, tuple[str, str]] = {
         "back until it's over your trail leg at the top -- a fuller turn stores "
         "more power without swinging harder.",
         "Your shoulder turn is longer than it needs to be, which can make timing "
-        "inconsistent. Feel like you stop turning once your back faces the target.",
+        "inconsistent and strains the back. Feel like you stop turning once your "
+        "back faces the target.",
     ),
     "hip_turn_deg": (
         "Your hips are barely turning back. Let your trail hip rotate behind you "
@@ -82,6 +83,8 @@ def _severity(metric: MetricResult) -> tuple[str, float] | None:
 
 def generate_tips(report: MetricsReport, max_tips: int = 3) -> list[Tip]:
     candidates: list[Tip] = []
+    metric_dict = {m.name: m for m in report.metrics}
+    
     for metric in report.metrics:
         flagged = _severity(metric)
         if flagged is None:
@@ -93,6 +96,25 @@ def generate_tips(report: MetricsReport, max_tips: int = 3) -> list[Tip]:
         text = rules[0] if direction == "low" else rules[1]
         if not text:
             continue
+        
+        # Skip contradictory X-factor and hip_turn tips if shoulder_turn is the real issue
+        if metric.name == "x_factor_deg" and direction == "high":
+            shoulder = metric_dict.get("shoulder_turn_deg")
+            hip = metric_dict.get("hip_turn_deg")
+            # If shoulder turn is excessive (>100°, range is 80-100) and X-factor is high,
+            # the separation is high because of shoulder, not hip; skip this tip
+            if shoulder and shoulder.value and shoulder.value > 100:
+                continue  # Shoulder turn is the real problem; don't say "turn hips earlier"
+        
+        if metric.name == "hip_turn_deg" and direction == "high":
+            shoulder = metric_dict.get("shoulder_turn_deg")
+            # If shoulder turn is excessive and causes high X-factor, hip turn may be in-range
+            # Don't recommend "hips over-rotate" when shoulder is the real culprit
+            if shoulder and shoulder.value and shoulder.value > 100:
+                # Only include hip tip if hip turn is also significantly out of range
+                if metric.value and metric.value <= 55:  # hip range max is ~55; slightly over is OK
+                    continue
+        
         candidates.append(
             Tip(metric=metric.name, direction=direction, severity=severity, text=text)
         )

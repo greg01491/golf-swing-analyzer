@@ -66,3 +66,23 @@ def test_low_sway_has_no_tip_text():
     # sway below range is fine, not a fault -- rule text is empty for "low"
     report = _report([_metric("hip_sway_top_pct", -5, 0, 30)])
     assert generate_tips(report) == []
+
+
+def test_shoulder_excessive_suppresses_contradictory_x_factor_and_hip_tips():
+    # User's actual case: shoulder_turn 128.3° (range 80-100), hip_turn 51.6° (range 40-55),
+    # x_factor 77° (range 30-45). Shoulder is the culprit; don't recommend hip changes.
+    report = _report(
+        [
+            _metric("shoulder_turn_deg", 128.3, 80, 100),  # high, severity=(128-100)/20=1.41
+            _metric("hip_turn_deg", 51.6, 40, 55),  # slightly high, severity=(51.6-55)/15=-0.23 (in range)
+            _metric("x_factor_deg", 77, 30, 45),  # high, severity=(77-45)/15=2.13
+        ]
+    )
+    tips = generate_tips(report, max_tips=3)
+    
+    # Should only recommend shoulder turn reduction, NOT X-factor or hip tips
+    assert len(tips) == 1
+    assert tips[0].metric == "shoulder_turn_deg"
+    assert tips[0].direction == "high"
+    assert "stop turning" in tips[0].text.lower()
+
