@@ -94,6 +94,15 @@ def _run_full_pipeline(session_dir: Path, config: Config) -> Callable[[], None] 
     return finalize_overlays
 
 
+def _describe(exc: Exception) -> str:
+    """Human-readable text for an exception.
+
+    Some exceptions stringify to "" -- notably AssertionError, which reached
+    the UI as a bare "failed to arm: " and told the user nothing.
+    """
+    return str(exc).strip() or exc.__class__.__name__
+
+
 def apply_env_overrides(config: Config) -> Config:
     """Re-point storage/calibration at the per-user directories the desktop
     launcher owns.
@@ -511,7 +520,8 @@ def create_app(
         try:
             runtime.arm()
         except Exception as exc:
-            raise HTTPException(500, f"failed to arm: {exc}") from exc
+            logger.exception("arm failed")
+            raise HTTPException(500, f"failed to arm: {_describe(exc)}") from exc
         return {"armed": True}
 
     @app.post("/api/capture/disarm")
@@ -524,7 +534,8 @@ def create_app(
         try:
             runtime.manual_trigger()
         except Exception as exc:
-            raise HTTPException(500, f"manual trigger failed: {exc}") from exc
+            logger.exception("manual trigger failed")
+            raise HTTPException(500, f"manual trigger failed: {_describe(exc)}") from exc
         return {"triggered": True}
 
     return app

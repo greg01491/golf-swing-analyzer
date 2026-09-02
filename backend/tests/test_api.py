@@ -492,3 +492,59 @@ def test_capture_arm_disarm_and_manual_trigger(client):
     assert any(s["id"] == status["last_session"] for s in sessions)
     detail = client.get(f"/api/sessions/{status['last_session']}").json()
     assert detail["metadata"]["club"] == "7_iron"
+
+
+def test_arming_works_after_the_calibration_wizard_started_the_cameras(
+    tmp_path, config, processor
+):
+    """Regression: the calibration wizard starts the cameras only, but
+    `running` means "cameras up", so arm() skipped start() and left the mic
+    uncreated. That surfaced as a message-less 'failed to arm: '."""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.safe_dump(json.loads(config.model_dump_json())))
+    test_client, runtime = _make_client(config, config_path, processor)
+    with test_client as client:
+        runtime.start_cameras()  # what the calibration wizard does
+        assert runtime.running and runtime._audio is None
+
+        response = client.post("/api/capture/arm")
+
+        assert response.status_code == 200, response.text
+        assert client.get("/api/capture/status").json()["armed"] is True
+    runtime.stop()
+
+
+def test_manual_capture_works_after_the_calibration_wizard(tmp_path, config, processor):
+    """Same camera-only `running` trap on the manual capture path."""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.safe_dump(json.loads(config.model_dump_json())))
+    test_client, runtime = _make_client(config, config_path, processor)
+    with test_client as client:
+        runtime.start_cameras()
+        client.put("/api/capture/club", json={"club": "7_iron"})
+
+        response = client.post("/api/capture/trigger")
+
+        assert response.status_code == 200, response.text
+    runtime.stop()
+
+
+def test_failures_without_a_message_still_explain_themselves(tmp_path, config, processor):
+    """An AssertionError stringifies to '', which reached the UI as a bare
+    'failed to arm: '. Any failure must name something."""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.safe_dump(json.loads(config.model_dump_json())))
+    test_client, runtime = _make_client(config, config_path, processor)
+
+    def boom():
+        raise AssertionError
+
+    with test_client as client:
+        runtime.arm = boom
+        response = client.post("/api/capture/arm")
+
+        assert response.status_code == 500
+        detail = response.json()["detail"]
+        assert detail.rstrip().rstrip(":") != "failed to arm"
+        assert "AssertionError" in detail
+    runtime.stop()

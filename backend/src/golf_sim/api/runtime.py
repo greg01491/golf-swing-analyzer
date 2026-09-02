@@ -154,8 +154,12 @@ class CaptureRuntime:
                 self._capture = None
 
     def arm(self) -> None:
-        if not self.running:
-            self.start()
+        # `running` only reflects the cameras, so the calibration wizard (which
+        # calls start_cameras()) leaves _capture set with no mic behind it.
+        # Gating on it here skipped start() and left _audio None, surfacing as
+        # a message-less AssertionError ("failed to arm: "). start() is
+        # idempotent per subsystem, so just always call it.
+        self.start()
         assert self._audio is not None
         self._audio.arm()
 
@@ -170,8 +174,9 @@ class CaptureRuntime:
     def manual_trigger(self) -> None:
         if self.selected_club is None:
             raise ValueError("select a club before capturing")
-        if not self.running:
-            self.start()
+        # Same camera-only `running` trap as arm(): after the calibration
+        # wizard the mic has never been created.
+        self.start()
         assert self._audio is not None
         self._audio.manual_trigger()
 
