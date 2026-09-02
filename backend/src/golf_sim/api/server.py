@@ -533,6 +533,15 @@ def create_app(
 def main() -> None:
     import uvicorn
 
+    # uvicorn configures its own loggers but leaves the root logger alone, so
+    # without this every golf_sim logger.info()/debug() is swallowed by
+    # logging.lastResort (WARNING-only). That silently hid the calibration
+    # diagnostics we rely on to debug installed builds from the log file.
+    logging.basicConfig(
+        level=os.environ.get("GOLF_SIM_LOG_LEVEL", "INFO").upper(),
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+
     config_path = Path(os.environ.get("GOLF_SIM_CONFIG_PATH", DEFAULT_CONFIG_PATH))
     config = apply_env_overrides(load_config(config_path))
 

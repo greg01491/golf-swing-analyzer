@@ -26,6 +26,11 @@ for package in (
     binaries += package_binaries
     hiddenimports += package_hiddenimports
 
+# Pose2Sim ships ~26MB of demo videos/images we never use, but the demo
+# folders also hold the Config.toml that pose.project uses as its base config
+# -- so drop the media and keep the (tiny) .toml files.
+KEEP_DEMO_SUFFIXES = {".toml"}
+
 filtered_datas = []
 for entry in datas:
     if len(entry) == 3:
@@ -34,7 +39,11 @@ for entry in datas:
     else:
         src, dest = entry
         normalized = (src, dest)
-    if "Pose2Sim" in src and "Demo_" in src:
+    if (
+        "Pose2Sim" in src
+        and "Demo_" in src
+        and Path(src).suffix.lower() not in KEEP_DEMO_SUFFIXES
+    ):
         continue
     filtered_datas.append(normalized)
 
