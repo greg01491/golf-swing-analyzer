@@ -26,7 +26,14 @@ from golf_sim.api.sessions import (
     session_dir_for,
     session_landmarks,
 )
-from golf_sim.config import CLUB_LABELS, DEFAULT_CONFIG_PATH, REPO_ROOT, Club, Config, load_config
+from golf_sim.config import (
+    CLUB_LABELS,
+    DEFAULT_CONFIG_PATH,
+    Club,
+    Config,
+    load_config,
+    resolve_state_path,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +94,29 @@ def _run_full_pipeline(session_dir: Path, config: Config) -> Callable[[], None] 
     return finalize_overlays
 
 
+def apply_env_overrides(config: Config) -> Config:
+    """Re-point storage/calibration at the per-user directories the desktop
+    launcher owns.
+
+    The packaged app installs read-only (Program Files when installed for all
+    users), so the relative paths in config.yaml must never win: resolved
+    against the frozen bundle they land inside the install directory and every
+    write fails with PermissionError. Electron passes writable per-user
+    directories via these env vars.
+
+    This must be re-applied after any reload of config.yaml (see PUT
+    /api/config) -- the file legitimately still holds the relative defaults, so
+    validating it hands back a config that would otherwise silently revert the
+    override and break capture until the next relaunch.
+    """
+    if data_dir := os.environ.get("GOLF_SIM_DATA_DIR"):
+        config.storage.data_dir = data_dir
+        config.storage.db_file = str(Path(data_dir) / "sessions.db")
+    if calibration_dir := os.environ.get("GOLF_SIM_CALIBRATION_DIR"):
+        config.calibration.dir = calibration_dir
+    return config
+
+
 def create_app(
     config: Config | None = None,
     runtime: CaptureRuntime | None = None,
@@ -100,7 +130,7 @@ def create_app(
     processor = processor or _run_full_pipeline
     data_dir = Path(config.storage.data_dir)
     if not data_dir.is_absolute():
-        data_dir = REPO_ROOT / data_dir
+        data_dir = resolve_state_path(data_dir)
 
     app = FastAPI(title="golf-sim")
     # The packaged Electron renderer runs from file:// (null origin), so it
@@ -293,6 +323,11 @@ def create_app(
             raise HTTPException(422, f"invalid config: {exc}") from exc
         preview_only = runtime.running and not runtime.armed
         _write_config_preserving_comments(Path(config_path), new_config)
+        # config.yaml still stores the relative default paths, so re-apply the
+        # launcher's per-user directory overrides here. Without this a settings
+        # save silently repointed storage back inside the (read-only) install
+        # directory and every later capture failed with PermissionError.
+        validated = apply_env_overrides(validated)
         # keep the live runtime's config in sync so disarm/arm (which now
         # fully tears down and rebuilds CaptureService) actually picks up the
         # change -- previously this was never updated, so the "disarm/arm to
@@ -499,12 +534,7 @@ def main() -> None:
     import uvicorn
 
     config_path = Path(os.environ.get("GOLF_SIM_CONFIG_PATH", DEFAULT_CONFIG_PATH))
-    config = load_config(config_path)
-    if data_dir := os.environ.get("GOLF_SIM_DATA_DIR"):
-        config.storage.data_dir = data_dir
-        config.storage.db_file = str(Path(data_dir) / "sessions.db")
-    if calibration_dir := os.environ.get("GOLF_SIM_CALIBRATION_DIR"):
-        config.calibration.dir = calibration_dir
+    config = apply_env_overrides(load_config(config_path))
 
     # Pose2Sim's filtering module deadlocks if its qtagg/plt.figure() probe
     # first runs on a worker thread (which is how background processing runs).

@@ -15,7 +15,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from golf_sim.config import REPO_ROOT, CalibrationConfig
+from golf_sim.config import CalibrationConfig, resolve_state_path
 
 
 class CalibrationMissingError(RuntimeError):
@@ -58,8 +58,7 @@ def _read_reprojection_error(calib_file: Path) -> float | None:
 
 
 def _rig_dir(calibration_config: CalibrationConfig) -> Path:
-    path = Path(calibration_config.dir)
-    return path if path.is_absolute() else REPO_ROOT / path
+    return resolve_state_path(calibration_config.dir)
 
 
 def _find_calib_file(rig_dir: Path) -> Path | None:

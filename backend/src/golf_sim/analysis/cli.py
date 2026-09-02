@@ -17,7 +17,7 @@ from golf_sim.analysis.metrics import compute_metrics
 from golf_sim.analysis.p_positions import detect_p_positions
 from golf_sim.analysis.quality import assess_tracking_quality
 from golf_sim.analysis.tips import generate_tips, tips_to_dicts
-from golf_sim.config import REPO_ROOT, Club, load_config
+from golf_sim.config import Club, load_config, resolve_state_path
 from golf_sim.trc import read_trc
 
 
@@ -106,7 +106,7 @@ def main() -> None:
 
     config = load_config()
     if args.latest:
-        sessions = sorted((REPO_ROOT / config.storage.data_dir / "sessions").iterdir())
+        sessions = sorted((resolve_state_path(config.storage.data_dir) / "sessions").iterdir())
         session_dir = sessions[-1]
     elif args.session_dir is not None:
         session_dir = args.session_dir

@@ -12,7 +12,7 @@ from pathlib import Path
 
 import cv2
 
-from golf_sim.config import REPO_ROOT, Config
+from golf_sim.config import Config, resolve_state_path
 from golf_sim.pose.board_detect import count_board_in_clip
 from golf_sim.pose.rig_calibration import (
     RigCalibration,
@@ -206,9 +206,7 @@ def compute_rig_calibration(
         mean_reprojection_error_px=reproj_err,
         estimated_person_height_m=height,
     )
-    rig_dir = Path(config.calibration.dir)
-    if not rig_dir.is_absolute():
-        rig_dir = REPO_ROOT / rig_dir
+    rig_dir = resolve_state_path(config.calibration.dir)
     rig_dir.mkdir(parents=True, exist_ok=True)
     calib_path = rig_dir / "Calib_rig.toml"
     write_calib_toml(calib_path, rig)

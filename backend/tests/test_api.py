@@ -197,6 +197,46 @@ def test_config_roundtrip_and_validation(client, tmp_path):
     assert client.put("/api/config", json=invalid).status_code == 422
 
 
+def test_config_save_preserves_launcher_storage_overrides(config, processor, tmp_path, monkeypatch):
+    # The desktop launcher points storage at a writable per-user directory via
+    # env vars, but config.yaml keeps the relative defaults. A settings save
+    # used to hand the runtime the file's values back, silently repointing
+    # captures inside the read-only install dir -- every later capture then
+    # died with PermissionError until the app was relaunched.
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.safe_dump(json.loads(config.model_dump_json())))
+    test_client, runtime = _make_client(config, config_path, processor)
+
+    user_data = tmp_path / "userdata"
+    user_calib = tmp_path / "usercalib"
+    monkeypatch.setenv("GOLF_SIM_DATA_DIR", str(user_data))
+    monkeypatch.setenv("GOLF_SIM_CALIBRATION_DIR", str(user_calib))
+
+    with test_client as client:
+        current = client.get("/api/config").json()
+        current["storage"]["data_dir"] = "data"  # the relative default on disk
+        current["storage"]["db_file"] = "data/sessions.db"
+        current["calibration"]["dir"] = "config/calibration"
+        assert client.put("/api/config", json=current).status_code == 200
+
+    assert runtime.config.storage.data_dir == str(user_data)
+    assert runtime.config.storage.db_file == str(user_data / "sessions.db")
+    assert runtime.config.calibration.dir == str(user_calib)
+    runtime.stop()
+
+
+def test_relative_state_paths_never_resolve_into_a_frozen_install(monkeypatch, tmp_path):
+    from golf_sim.config import resolve_state_path
+
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    monkeypatch.setattr("golf_sim.config.sys.frozen", True, raising=False)
+    resolved = resolve_state_path("data")
+    assert resolved == tmp_path / "golf-swing-analyzer" / "data"
+
+    absolute = tmp_path / "explicit"
+    assert resolve_state_path(absolute) == absolute
+
+
 def _wait_for_capture(client, timeout_s=5.0):
     import time
 

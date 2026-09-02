@@ -228,6 +228,11 @@ export default function CalibrationWizard() {
   // reappears automatically each time, acting as the "next capture in
   // 3, 2, 1" cue without any extra text needed.
   const runCaptureLoop = async (kind: 'intrinsics' | 'extrinsics', forCamera: string) => {
+    // A single failed shot used to end the whole run, forcing a re-click for
+    // every capture. Tolerate a few consecutive failures instead, so a
+    // transient hiccup just costs one cycle rather than the session.
+    const MAX_CONSECUTIVE_FAILURES = 3
+    let consecutiveFailures = 0
     while (autoCapturingRef.current) {
       for (let s = countdownS; s > 0 && autoCapturingRef.current; s--) {
         setCounting(s)
@@ -237,7 +242,13 @@ export default function CalibrationWizard() {
       setCounting(0)
       const updated = await capture(kind, forCamera)
       setCounting(null)
-      if (!updated) break
+      if (!updated) {
+        consecutiveFailures++
+        if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) break
+        await sleep(1500)
+        continue
+      }
+      consecutiveFailures = 0
       setCapturesThisRun((n) => n + 1)
       if (countStageShots(updated, kind, forCamera) >= SHOT_TARGET[kind]) {
         setTargetReached(true)
