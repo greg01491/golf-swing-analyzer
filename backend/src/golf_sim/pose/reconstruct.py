@@ -26,6 +26,18 @@ class ReconstructionResult:
     trc_files: list[Path]
 
 
+class SwingNotVisibleError(RuntimeError):
+    """No span of the swing was usable in both cameras at once."""
+
+
+# Pose2Sim raises a generic message for this and blames calibration,
+# synchronization and Config.toml. All three are usually fine: seen live on a
+# rig calibrated to 0.2px reprojection, where one swing of eleven failed simply
+# because the golfer wasn't tracked in both views for long enough. Sending
+# someone off to redo a good calibration is worse than not explaining at all.
+_NO_PERSONS_MARKER = "No persons have been triangulated"
+
+
 def trc_files(project_dir: Path) -> list[Path]:
     pose3d = Path(project_dir) / "pose-3d"
     return sorted(pose3d.glob("*.trc")) if pose3d.is_dir() else []
@@ -104,7 +116,18 @@ def run_reconstruction(session_dir: Path, config: Config) -> ReconstructionResul
         },
     }
     Pose2Sim.personAssociation(pose2sim_config)
-    Pose2Sim.triangulation(pose2sim_config)
+    try:
+        Pose2Sim.triangulation(pose2sim_config)
+    except Exception as exc:
+        if _NO_PERSONS_MARKER not in str(exc):
+            raise
+        raise SwingNotVisibleError(
+            "couldn't build a 3D swing from this capture -- you weren't tracked in "
+            "both cameras at the same time for long enough (at least 10 frames in a "
+            "row are needed). Check you're fully in frame, head to feet, in BOTH "
+            "camera previews for the whole swing, and that the room is well lit. "
+            "Your calibration is fine; there's no need to redo it."
+        ) from exc
     Pose2Sim.filtering(pose2sim_config)
 
     result = ReconstructionResult(project_dir=project_dir, trc_files=trc_files(project_dir))
