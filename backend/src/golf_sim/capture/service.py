@@ -12,7 +12,7 @@ from golf_sim.capture.resample import resample_to_grid
 from golf_sim.capture.source import CameraSource, OpenCVCameraSource
 from golf_sim.capture.stream import CameraStream
 from golf_sim.capture.writer import SessionWriter
-from golf_sim.config import REPO_ROOT, Config
+from golf_sim.config import Config, resolve_state_path
 
 
 class CaptureService:
@@ -51,7 +51,7 @@ class CaptureService:
                 "fps": dev.fps,
             }
 
-        self.writer = SessionWriter(REPO_ROOT / config.storage.data_dir)
+        self.writer = SessionWriter(resolve_state_path(config.storage.data_dir))
 
     def start(self) -> None:
         for stream in self.streams.values():

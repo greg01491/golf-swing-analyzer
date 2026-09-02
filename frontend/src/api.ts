@@ -81,6 +81,16 @@ export interface CaptureStatus {
   selected_club: string | null
 }
 
+export interface StartupStatus {
+  ready: boolean
+  pose_ready: boolean
+  models_ready: boolean
+  calibration_ready: boolean
+  audio_ready: boolean
+  audio_device: number | null
+  messages: string[]
+}
+
 export interface CalibrationInfo {
   exists: boolean
   file: string | null
@@ -145,12 +155,17 @@ export interface CameraCheckResult {
 const BASE = window.location.protocol === 'file:' ? 'http://127.0.0.1:8765' : ''
 
 async function json<T>(res: Response): Promise<T> {
-  if (!res.ok) throw new Error(`${res.status} ${await res.text()}`)
+  if (!res.ok) {
+    const body = await res.text()
+    console.error(`${res.url} failed: ${res.status} ${body}`)
+    throw new Error(`${res.status} ${body}`)
+  }
   return res.json()
 }
 
 export const api = {
   clubs: () => fetch(`${BASE}/api/clubs`).then((r) => json<ClubOption[]>(r)),
+  startup: () => fetch(`${BASE}/api/startup`).then((r) => json<StartupStatus>(r)),
   sessions: () => fetch(`${BASE}/api/sessions`).then((r) => json<SessionSummary[]>(r)),
   session: (id: string) =>
     fetch(`${BASE}/api/sessions/${id}`).then((r) => json<SessionDetail>(r)),
@@ -175,7 +190,7 @@ export const api = {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(config),
-    }).then((r) => json<{ status: string }>(r)),
+    }).then((r) => json<{ status: string; note: string }>(r)),
   captureStatus: () => fetch(`${BASE}/api/capture/status`).then((r) => json<CaptureStatus>(r)),
   arm: () => fetch(`${BASE}/api/capture/arm`, { method: 'POST' }).then((r) => json<unknown>(r)),
   disarm: () =>
@@ -189,7 +204,19 @@ export const api = {
       body: JSON.stringify({ club }),
     }).then((r) => json<{ club: string }>(r)),
   previewUrl: (camera: string) => `${BASE}/api/capture/preview/${camera}`,
+  previewStart: () =>
+    fetch(`${BASE}/api/capture/preview/start`, { method: 'POST' }).then((r) =>
+      json<{ running: boolean }>(r),
+    ),
   calibrationBoardUrl: () => `${BASE}/api/calibration/board.png`,
+  calibrationPreviewStart: () =>
+    fetch(`${BASE}/api/calibration/preview/start`, { method: 'POST' }).then((r) =>
+      json<{ running: boolean }>(r),
+    ),
+  calibrationPreviewStop: () =>
+    fetch(`${BASE}/api/calibration/preview/stop`, { method: 'POST' }).then((r) =>
+      json<{ running: boolean }>(r),
+    ),
   calibrationInfo: () =>
     fetch(`${BASE}/api/calibration/info`).then((r) => json<CalibrationInfo>(r)),
   calibrationShots: () =>

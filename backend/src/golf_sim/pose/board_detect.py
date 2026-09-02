@@ -3,10 +3,13 @@ intrinsic calibration input)."""
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import cv2
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 def _detect_board(gray: np.ndarray, pattern: tuple[int, int]) -> np.ndarray | None:
@@ -49,24 +52,47 @@ def find_board_corners(
     for each frame where the full board is found."""
     pattern = tuple(corners_nb)
     cap = cv2.VideoCapture(str(clip))
+    if not cap.isOpened():
+        logger.error(f"Cannot open video file: {clip}")
+        return []
+    
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    if total == 0:
+        logger.error(f"Video has no frames: {clip}")
+        cap.release()
+        return []
+    
     found = []
+    samples_to_check = min(max_samples, total)
+    logger.debug(f"Checking {samples_to_check} frames from {clip} for {pattern} checkerboard")
+    
     try:
-        for i in range(min(max_samples, total)):
-            cap.set(cv2.CAP_PROP_POS_FRAMES, int(i * total / min(max_samples, total)))
+        for i in range(samples_to_check):
+            cap.set(cv2.CAP_PROP_POS_FRAMES, int(i * total / samples_to_check))
             ok, frame = cap.read()
             if not ok:
+                logger.debug(f"  Frame {i}: read failed")
                 continue
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             corners = _detect_board(gray, pattern)
             if corners is not None:
                 found.append((corners, (gray.shape[1], gray.shape[0])))
+                logger.debug(f"  Frame {i}: board detected ✓")
+            else:
+                logger.debug(f"  Frame {i}: no board")
     finally:
         cap.release()
+    
+    logger.info(f"Board detection in {clip}: {len(found)} / {samples_to_check} frames detected")
     return found
 
 
 def count_board_in_clip(clip: Path, corners_nb: tuple[int, int], samples: int = 6) -> int:
     """Cheap wizard feedback: in how many of `samples` frames is the board
     fully visible/detectable?"""
-    return len(find_board_corners(clip, corners_nb, max_samples=samples))
+    try:
+        count = len(find_board_corners(clip, corners_nb, max_samples=samples))
+        return count
+    except Exception as e:
+        logger.error(f"Board detection failed for {clip}: {e}", exc_info=True)
+        return 0

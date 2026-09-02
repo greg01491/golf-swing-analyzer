@@ -50,6 +50,22 @@ class CalibrationDataError(RuntimeError):
     pass
 
 
+#: A view whose reprojection error exceeds max(3x the median, this) is treated
+#: as a bad capture -- motion blur, or the board clipped by the frame edge.
+_OUTLIER_FLOOR_PX = 0.5
+_MIN_VIEWS_AFTER_REJECTION = 12
+_MAX_REJECTION_ROUNDS = 3
+
+
+def _per_view_errors(object_points, image_points, matrix, dist, rvecs, tvecs) -> np.ndarray:
+    """Mean reprojection error for each board view, in pixels."""
+    errors = []
+    for objp, imgp, rvec, tvec in zip(object_points, image_points, rvecs, tvecs, strict=True):
+        projected, _ = cv2.projectPoints(objp, rvec, tvec, matrix, dist)
+        errors.append(cv2.norm(imgp, projected.reshape(imgp.shape), cv2.NORM_L2) / len(projected))
+    return np.array(errors)
+
+
 def calibrate_intrinsics(
     clips: list[Path], corners_nb: tuple[int, int], square_size_mm: float
 ) -> CameraIntrinsics:
@@ -70,10 +86,34 @@ def calibrate_intrinsics(
             "need at least 6. Hold the board closer to the lens (about arm's length), "
             "well lit, tilting slowly."
         )
+
+    # Fix k3 at zero: the Pose2Sim Calib toml stores exactly four distortion
+    # coefficients, so fitting a fifth and then slicing it off would persist a
+    # lens model that was never fitted. On the live rig k3 came out at -63.6
+    # for the wide camera, so that truncation was badly wrong, not cosmetic.
+    flags = cv2.CALIB_FIX_K3
     object_points = [object_points_single] * len(image_points)
-    rms, K, dist, _, _ = cv2.calibrateCamera(object_points, image_points, size, None, None)
+    rms, matrix, dist, rvecs, tvecs = cv2.calibrateCamera(
+        object_points, image_points, size, None, None, flags=flags
+    )
+
+    # A few bad views can dominate the fit: on the live rig 12 blurred views
+    # out of 191 pushed the wide camera to 7.1px, which tripped the "poor
+    # calibration" guard, while the other 179 fitted to 0.48px. Drop the
+    # outliers and refit rather than rejecting a perfectly usable capture set.
+    for _ in range(_MAX_REJECTION_ROUNDS):
+        errors = _per_view_errors(object_points, image_points, matrix, dist, rvecs, tvecs)
+        keep = errors <= max(float(np.median(errors)) * 3, _OUTLIER_FLOOR_PX)
+        if keep.all() or int(keep.sum()) < _MIN_VIEWS_AFTER_REJECTION:
+            break
+        image_points = [p for p, keeping in zip(image_points, keep, strict=True) if keeping]
+        object_points = [object_points_single] * len(image_points)
+        rms, matrix, dist, rvecs, tvecs = cv2.calibrateCamera(
+            object_points, image_points, size, None, None, flags=flags
+        )
+
     return CameraIntrinsics(
-        matrix=K,
+        matrix=matrix,
         distortions=dist.ravel()[:4],
         size=size,
         rms_error=float(rms),
@@ -81,19 +121,29 @@ def calibrate_intrinsics(
     )
 
 
+# HALPE_26 indices, the layout Pose2Sim emits by default.
+_HALPE_26_JOINTS = 26
+_HEAD_JOINTS = (17, 0)  # Head, falling back to Nose
+_FOOT_JOINTS = (24, 25, 15, 16)  # heels, then ankles
+
+
 def _load_keypoint_correspondences(
     pose_dir: Path, confidence_threshold: float = 0.6
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Matched (x, y) keypoints between camera_1 and camera_2 across all
-    frames of a pose-estimated session."""
+    frames of a pose-estimated session.
+
+    Also returns, parallel to the points, the frame number and the joint index
+    each correspondence came from, so callers can reason about individual body
+    parts rather than an anonymous point cloud."""
     dirs = sorted(pose_dir.glob("camera_*_json"))
     if len(dirs) != 2:
         raise CalibrationDataError(f"expected 2 camera json folders in {pose_dir}, got {len(dirs)}")
     frames1 = sorted(dirs[0].glob("*.json"))
     frames2 = sorted(dirs[1].glob("*.json"))
 
-    pts1, pts2 = [], []
-    for f1, f2 in zip(frames1, frames2, strict=False):
+    pts1, pts2, frame_ids, joint_ids = [], [], [], []
+    for frame_no, (f1, f2) in enumerate(zip(frames1, frames2, strict=False)):
         people1 = json.loads(f1.read_text())["people"]
         people2 = json.loads(f2.read_text())["people"]
         if len(people1) != 1 or len(people2) != 1:
@@ -103,9 +153,50 @@ def _load_keypoint_correspondences(
         good = (kp1[:, 2] > confidence_threshold) & (kp2[:, 2] > confidence_threshold)
         pts1.append(kp1[good, :2])
         pts2.append(kp2[good, :2])
+        joints = np.flatnonzero(good)
+        joint_ids.append(joints)
+        frame_ids.append(np.full(len(joints), frame_no))
     if not pts1:
         raise CalibrationDataError("no frames where exactly one person is visible in both views")
-    return np.vstack(pts1).astype(np.float64), np.vstack(pts2).astype(np.float64)
+    return (
+        np.vstack(pts1).astype(np.float64),
+        np.vstack(pts2).astype(np.float64),
+        np.concatenate(frame_ids),
+        np.concatenate(joint_ids),
+    )
+
+
+def _estimate_standing_height(
+    points3: np.ndarray, frame_ids: np.ndarray, joint_ids: np.ndarray
+) -> float | None:
+    """Tallest head-to-feet distance over the capture, in metres.
+
+    The old sanity figure was the largest side of the bounding box of every
+    triangulated point from every frame, which measures the volume the golfer
+    swept through (arms, club, any drift) rather than the golfer, and so reads
+    high. Measuring head to feet within a single frame is a real anthropometric
+    quantity, and the most upright frame of the capture approximates standing
+    height."""
+    if joint_ids.size == 0 or joint_ids.max() >= _HALPE_26_JOINTS:
+        return None  # unknown skeleton layout -- don't guess
+
+    spans = []
+    for frame in np.unique(frame_ids):
+        in_frame = frame_ids == frame
+        joints = joint_ids[in_frame]
+        coords = points3[in_frame]
+        lookup = {int(j): coords[i] for i, j in enumerate(joints)}
+        head = next((lookup[j] for j in _HEAD_JOINTS if j in lookup), None)
+        feet = [lookup[j] for j in _FOOT_JOINTS if j in lookup]
+        if head is None or not feet:
+            continue
+        spans.append(float(np.linalg.norm(head - np.mean(feet, axis=0))))
+
+    if len(spans) < 5:
+        return None
+    # the most upright frame, but via a high percentile so one bad
+    # triangulation can't set the answer
+    return float(np.percentile(spans, 95))
 
 
 def calibrate_extrinsics(
@@ -118,7 +209,7 @@ def calibrate_extrinsics(
 
     Returns (rodrigues rotation, translation [m], n_points, mean reprojection
     error px, estimated standing height m or None)."""
-    pts1, pts2 = _load_keypoint_correspondences(pose_dir)
+    pts1, pts2, frame_ids, joint_ids = _load_keypoint_correspondences(pose_dir)
     if len(pts1) < 100:
         raise CalibrationDataError(
             f"only {len(pts1)} keypoint correspondences -- capture again with the "
@@ -148,9 +239,8 @@ def calibrate_extrinsics(
     orig = pts1[mask]
     err = float(np.mean(np.linalg.norm(reproj.reshape(-1, 2) - orig, axis=1)))
 
-    # rough standing-height sanity figure: extent of the triangulated cloud
-    extent = points3.max(axis=0) - points3.min(axis=0)
-    height = float(np.max(extent)) if len(points3) > 50 else None
+    # rough standing-height sanity figure, from the most upright frame
+    height = _estimate_standing_height(points3, frame_ids[mask], joint_ids[mask])
 
     return cv2.Rodrigues(R)[0].ravel(), t, int(mask.sum()), err, height
 

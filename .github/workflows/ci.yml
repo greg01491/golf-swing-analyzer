@@ -34,3 +34,54 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run build
+
+  desktop-package:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - working-directory: backend
+        run: pip install -e ".[pose,packaging]"
+      - working-directory: frontend
+        run: npm ci
+      - working-directory: frontend
+        run: npm run electron:build
+      - name: Smoke-test bundled backend
+        shell: pwsh
+        run: |
+          $runtime = Join-Path $env:RUNNER_TEMP "golf-runtime"
+          New-Item -ItemType Directory -Force -Path "$runtime\data", "$runtime\calibration" | Out-Null
+          Copy-Item "config\config.yaml" "$runtime\config.yaml"
+          $env:GOLF_SIM_CONFIG_PATH = "$runtime\config.yaml"
+          $env:GOLF_SIM_DATA_DIR = "$runtime\data"
+          $env:GOLF_SIM_CALIBRATION_DIR = "$runtime\calibration"
+          $env:TORCH_HOME = (Resolve-Path "backend\runtime-models").Path
+          $backend = Start-Process `
+            "backend\dist\golf-sim-backend\golf-sim-backend.exe" `
+            -PassThru
+          try {
+            $deadline = (Get-Date).AddMinutes(3)
+            do {
+              Start-Sleep -Seconds 2
+              try {
+                $health = Invoke-RestMethod "http://127.0.0.1:8765/api/health"
+              } catch {
+                $health = $null
+              }
+            } while (-not $health.ready -and (Get-Date) -lt $deadline)
+            if (-not $health.ready) {
+              throw "Bundled backend did not become healthy"
+            }
+            $startup = Invoke-RestMethod "http://127.0.0.1:8765/api/startup"
+            if (-not $startup.pose_ready -or -not $startup.models_ready) {
+              throw "Bundled pose runtime is incomplete: $($startup | ConvertTo-Json -Compress)"
+            }
+          } finally {
+            Stop-Process -Id $backend.Id -Force -ErrorAction SilentlyContinue
+          }

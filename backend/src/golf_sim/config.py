@@ -4,6 +4,8 @@ constants elsewhere."""
 
 from __future__ import annotations
 
+import os
+import sys
 from pathlib import Path
 from typing import Literal
 
@@ -12,6 +14,31 @@ from pydantic import BaseModel, Field
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_CONFIG_PATH = REPO_ROOT / "config" / "config.yaml"
+
+
+def user_state_root() -> Path:
+    """Writable per-user directory for captures, calibration and the database."""
+    base = os.environ.get("APPDATA") or os.environ.get("XDG_DATA_HOME")
+    if base:
+        return Path(base) / "golf-swing-analyzer"
+    return Path.home() / ".local" / "share" / "golf-swing-analyzer"
+
+
+def resolve_state_path(value: str | Path) -> Path:
+    """Resolve a configured storage path to an absolute, writable location.
+
+    config.yaml ships relative defaults ("data") that are fine from a source
+    checkout but disastrous in the packaged app: REPO_ROOT then points inside
+    the install directory (Program Files for an all-users install), so every
+    write dies with PermissionError. In a frozen build relative paths are
+    therefore resolved against the per-user state directory instead.
+    """
+    path = Path(value)
+    if path.is_absolute():
+        return path
+    if getattr(sys, "frozen", False):
+        return user_state_root() / path
+    return REPO_ROOT / path
 
 
 class AudioTriggerConfig(BaseModel):
@@ -54,6 +81,7 @@ class CalibrationConfig(BaseModel):
     max_age_days: int
     checkerboard_corners: list[int]
     checkerboard_square_size_mm: float
+    camera_distance_m: float = 3.115
 
 
 class ReferenceRange(BaseModel):

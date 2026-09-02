@@ -2,7 +2,12 @@ import { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import type { CaptureStatus, ClubOption } from '../api'
 
-export default function ArmControl({ onCapture }: { onCapture: (sessionId: string) => void }) {
+interface Props {
+  captureReady: boolean
+  onCapture: (sessionId: string) => void
+}
+
+export default function ArmControl({ captureReady, onCapture }: Props) {
   const [status, setStatus] = useState<CaptureStatus | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [lastSeen, setLastSeen] = useState<string | null>(null)
@@ -74,9 +79,10 @@ export default function ArmControl({ onCapture }: { onCapture: (sessionId: strin
           ● armed — disarm
         </button>
       ) : (
-        <button disabled={!club} onClick={call(api.arm)}>arm listening</button>
+        <button disabled={!club || !captureReady} onClick={call(api.arm)}>arm listening</button>
       )}
-      <button disabled={!club} onClick={call(api.trigger)}>manual capture</button>
+      <button disabled={!club || !captureReady} onClick={call(api.trigger)}>manual capture</button>
+      {!captureReady && <span className="setup-required">setup required</span>}
       {status?.mic_error && <span className="error">mic: {status.mic_error}</span>}
       {status &&
         Object.entries(status.camera_health)

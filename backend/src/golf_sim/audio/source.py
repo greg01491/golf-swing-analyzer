@@ -10,6 +10,7 @@ import numpy as np
 import sounddevice as sd
 
 from golf_sim.audio.block import AudioBlock
+from golf_sim.audio.devices import resolve_input_device
 
 
 class AudioSource(Protocol):
@@ -32,11 +33,12 @@ class SounddeviceMicSource:
         self._stream: sd.InputStream | None = None
 
     def open(self) -> None:
+        resolved_device = resolve_input_device(self.device)
         samplerate = self.samplerate
-        if samplerate is None and self.device is not None:
-            samplerate = int(sd.query_devices(self.device)["default_samplerate"])
+        if samplerate is None and resolved_device is not None:
+            samplerate = int(sd.query_devices(resolved_device)["default_samplerate"])
         self._stream = sd.InputStream(
-            device=self.device,
+            device=resolved_device,
             channels=1,
             samplerate=samplerate,
             blocksize=self.block_size,

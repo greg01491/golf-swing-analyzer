@@ -9,7 +9,10 @@ audio_trigger:
   # specific device index). Run `python -m golf_sim.audio.cli devices` to
   # list candidates and set an explicit index -- WASAPI-backed entries are
   # the most reliable bet on Windows.
-  device: 11  # Microphone Array (AMD Audio Device), WASAPI 48kHz -- indices shuffle across reboots; re-check with `python -m golf_sim.audio.cli devices` and pick the WASAPI mic (was 14, now 11 as of 2026-07-20)
+  # Stable host API + device name. If it is unavailable, startup automatically
+  # falls back to the first usable WASAPI input instead of trusting a stale
+  # Windows device index.
+  device: "Windows WASAPI:Microphone Array (AMD Audio Device)"
   # RMS/dB trigger threshold. TBD via calibration helper (Phase 2).
   threshold_db: -20
   # Seconds of footage to keep *before* the trigger in the saved clip.
@@ -78,6 +81,8 @@ calibration:
   - 4
   - 7
   checkerboard_square_size_mm: 28.4  # measured on Greg's print with a ruler
+  # Straight-line distance between the two camera lenses in the current rig.
+  camera_distance_m: 3.115
 
 metrics:
   # Per-metric reference ranges; edit freely. Units in degrees unless noted.

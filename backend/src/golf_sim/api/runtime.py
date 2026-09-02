@@ -78,7 +78,7 @@ class CaptureRuntime:
         trigger but never dispatches auto-processing (the caller marks the
         session as a calibration shot instead)."""
         if not self.running:
-            self.start()
+            self.start_cameras()
         assert self._capture is not None
         import time as _time
 
@@ -107,13 +107,26 @@ class CaptureRuntime:
         # observe an idle status, and never poll for the completed results.
         self.last_session_dir = session_dir
 
-    def start(self) -> None:
+    def start_cameras(self) -> None:
         with self._lock:
             if self.running:
                 return
             self.last_error = None
             capture = CaptureService(self.config, sources=self._camera_sources)
             capture.start()
+            self._capture = capture
+
+    def start(self) -> None:
+        with self._lock:
+            capture_created = False
+            if self._capture is None:
+                self.last_error = None
+                capture = CaptureService(self.config, sources=self._camera_sources)
+                capture.start()
+                self._capture = capture
+                capture_created = True
+            if self._audio is not None:
+                return
             audio_source = self._audio_source or SounddeviceMicSource(
                 device=self.config.audio_trigger.device
             )
@@ -122,8 +135,14 @@ class CaptureRuntime:
                 cooldown_s=self.config.audio_trigger.trigger_cooldown_s,
             )
             audio = AudioTriggerService(audio_source, detector, self._on_trigger)
-            audio.start()
-            self._capture, self._audio = capture, audio
+            try:
+                audio.start()
+            except Exception:
+                if capture_created:
+                    self._capture.stop()
+                    self._capture = None
+                raise
+            self._audio = audio
 
     def stop(self) -> None:
         with self._lock:
@@ -135,8 +154,12 @@ class CaptureRuntime:
                 self._capture = None
 
     def arm(self) -> None:
-        if not self.running:
-            self.start()
+        # `running` only reflects the cameras, so the calibration wizard (which
+        # calls start_cameras()) leaves _capture set with no mic behind it.
+        # Gating on it here skipped start() and left _audio None, surfacing as
+        # a message-less AssertionError ("failed to arm: "). start() is
+        # idempotent per subsystem, so just always call it.
+        self.start()
         assert self._audio is not None
         self._audio.arm()
 
@@ -151,8 +174,9 @@ class CaptureRuntime:
     def manual_trigger(self) -> None:
         if self.selected_club is None:
             raise ValueError("select a club before capturing")
-        if not self.running:
-            self.start()
+        # Same camera-only `running` trap as arm(): after the calibration
+        # wizard the mic has never been created.
+        self.start()
         assert self._audio is not None
         self._audio.manual_trigger()
 

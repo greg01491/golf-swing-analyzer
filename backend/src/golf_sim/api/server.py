@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import importlib
 import logging
 import os
 import threading
@@ -25,7 +26,14 @@ from golf_sim.api.sessions import (
     session_dir_for,
     session_landmarks,
 )
-from golf_sim.config import CLUB_LABELS, DEFAULT_CONFIG_PATH, REPO_ROOT, Club, Config, load_config
+from golf_sim.config import (
+    CLUB_LABELS,
+    DEFAULT_CONFIG_PATH,
+    Club,
+    Config,
+    load_config,
+    resolve_state_path,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +94,38 @@ def _run_full_pipeline(session_dir: Path, config: Config) -> Callable[[], None] 
     return finalize_overlays
 
 
+def _describe(exc: Exception) -> str:
+    """Human-readable text for an exception.
+
+    Some exceptions stringify to "" -- notably AssertionError, which reached
+    the UI as a bare "failed to arm: " and told the user nothing.
+    """
+    return str(exc).strip() or exc.__class__.__name__
+
+
+def apply_env_overrides(config: Config) -> Config:
+    """Re-point storage/calibration at the per-user directories the desktop
+    launcher owns.
+
+    The packaged app installs read-only (Program Files when installed for all
+    users), so the relative paths in config.yaml must never win: resolved
+    against the frozen bundle they land inside the install directory and every
+    write fails with PermissionError. Electron passes writable per-user
+    directories via these env vars.
+
+    This must be re-applied after any reload of config.yaml (see PUT
+    /api/config) -- the file legitimately still holds the relative defaults, so
+    validating it hands back a config that would otherwise silently revert the
+    override and break capture until the next relaunch.
+    """
+    if data_dir := os.environ.get("GOLF_SIM_DATA_DIR"):
+        config.storage.data_dir = data_dir
+        config.storage.db_file = str(Path(data_dir) / "sessions.db")
+    if calibration_dir := os.environ.get("GOLF_SIM_CALIBRATION_DIR"):
+        config.calibration.dir = calibration_dir
+    return config
+
+
 def create_app(
     config: Config | None = None,
     runtime: CaptureRuntime | None = None,
@@ -99,7 +139,7 @@ def create_app(
     processor = processor or _run_full_pipeline
     data_dir = Path(config.storage.data_dir)
     if not data_dir.is_absolute():
-        data_dir = REPO_ROOT / data_dir
+        data_dir = resolve_state_path(data_dir)
 
     app = FastAPI(title="golf-sim")
     # The packaged Electron renderer runs from file:// (null origin), so it
@@ -111,6 +151,81 @@ def create_app(
     app.add_middleware(
         CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]
     )
+
+    @app.middleware("http")
+    async def log_request_failures(request, call_next):
+        try:
+            response = await call_next(request)
+        except Exception:
+            logger.exception("unhandled request failure: %s %s", request.method, request.url.path)
+            raise
+        expected_preview_wait = response.status_code == 503 and request.url.path.startswith(
+            "/api/capture/preview/"
+        )
+        if response.status_code >= 400 and not expected_preview_wait:
+            logger.error(
+                "request failed: %s %s -> %s",
+                request.method,
+                request.url.path,
+                response.status_code,
+            )
+        return response
+
+    @app.get("/api/health")
+    def health():
+        return {"ready": True}
+
+    @app.get("/api/startup")
+    def startup():
+        from golf_sim.audio.devices import resolve_input_device
+        from golf_sim.pose.calibrate import calibration_status
+
+        messages = []
+        dependency_error = None
+        try:
+            for module in ("Pose2Sim", "opensim", "openvino", "onnxruntime"):
+                importlib.import_module(module)
+            from imageio_ffmpeg import get_ffmpeg_exe
+
+            get_ffmpeg_exe()
+            pose_ready = True
+        except Exception as exc:
+            pose_ready = False
+            dependency_error = str(exc)
+        if not pose_ready:
+            messages.append(f"The 3D pose engine is unavailable: {dependency_error}")
+
+        model_root = Path(os.path.expanduser(os.environ.get("TORCH_HOME", "~/.cache/rtmlib")))
+        models_ready = len(list((model_root / "hub" / "checkpoints").glob("*.onnx"))) >= 2
+        if not models_ready:
+            messages.append("The offline pose models are missing from this installation.")
+
+        calibration = calibration_status(config.calibration)
+        calibration_ready = calibration.exists and not calibration.broken
+        if not calibration.exists:
+            messages.append("Calibrate both cameras before capturing a swing.")
+        elif calibration.broken:
+            messages.append("The saved camera calibration is unusable; recalibrate both cameras.")
+
+        try:
+            audio_device = resolve_input_device(config.audio_trigger.device)
+            audio_ready = True
+        except Exception as exc:
+            audio_device = None
+            audio_ready = False
+            messages.append(f"Microphone unavailable: {exc}")
+
+        data_dir.mkdir(parents=True, exist_ok=True)
+        return {
+            "ready": pose_ready and models_ready and calibration_ready and audio_ready,
+            "pose_ready": pose_ready,
+            "models_ready": models_ready,
+            "calibration_ready": calibration_ready,
+            "audio_ready": audio_ready,
+            "audio_device": audio_device,
+            "messages": messages,
+        }
+
     processing: dict[str, str] = {}  # session_id -> "running" | "done" | "error: ..."
     # Pose estimation is CPU-heavy; serialize so back-to-back captures queue
     # instead of thrashing the machine while it's also buffering cameras.
@@ -136,6 +251,7 @@ def create_app(
                             logger.exception("post-processing failed for session %s", session_id)
                 except Exception as exc:
                     processing[session_id] = f"error: {exc}"
+                    logger.exception("processing failed for session %s", session_id)
 
         processing[session_id] = "running"
         threading.Thread(target=run, daemon=True, name=f"process-{session_id}").start()
@@ -208,17 +324,29 @@ def create_app(
 
     @app.put("/api/config")
     def put_config(new_config: dict):
+        nonlocal config
         # validate before persisting so a bad edit can't brick the app
         try:
             validated = Config.model_validate(new_config)
         except Exception as exc:
             raise HTTPException(422, f"invalid config: {exc}") from exc
+        preview_only = runtime.running and not runtime.armed
         _write_config_preserving_comments(Path(config_path), new_config)
+        # config.yaml still stores the relative default paths, so re-apply the
+        # launcher's per-user directory overrides here. Without this a settings
+        # save silently repointed storage back inside the (read-only) install
+        # directory and every later capture failed with PermissionError.
+        validated = apply_env_overrides(validated)
         # keep the live runtime's config in sync so disarm/arm (which now
         # fully tears down and rebuilds CaptureService) actually picks up the
         # change -- previously this was never updated, so the "disarm/arm to
         # apply" note below was a lie and only a full app relaunch worked.
         runtime.config = validated
+        config = validated
+        if preview_only:
+            runtime.stop()
+            runtime.start_cameras()
+            return {"status": "saved", "note": "camera preview restarted with the new settings"}
         return {"status": "saved", "note": "restart capture (disarm/arm) to apply"}
 
     @app.get("/api/capture/preview/{camera}")
@@ -240,6 +368,21 @@ def create_app(
 
     calib_compute: dict = {"state": "idle"}
 
+    @app.post("/api/capture/preview/start")
+    @app.post("/api/calibration/preview/start")
+    def calibration_preview_start():
+        try:
+            runtime.start_cameras()
+        except Exception as exc:
+            logger.exception("calibration camera startup failed")
+            raise HTTPException(500, f"camera startup failed: {exc}") from exc
+        return {"running": True}
+
+    @app.post("/api/calibration/preview/stop")
+    def calibration_preview_stop():
+        runtime.stop()
+        return {"running": False}
+
     @app.post("/api/calibration/shot")
     def calibration_shot(body: dict):
         from golf_sim.pose.wizard import mark_calibration_shot
@@ -251,11 +394,24 @@ def create_app(
         valid_roles = {dev.role for dev in config.cameras.devices}
         if for_camera is not None and for_camera not in valid_roles:
             raise HTTPException(422, f"camera must be one of {sorted(valid_roles)}")
+        logger.info("calibration capture starting: kind=%s camera=%s", kind, for_camera)
         try:
             session_dir = runtime.capture_calibration_shot()
         except Exception as exc:
+            logger.exception("calibration capture failed")
             raise HTTPException(500, f"capture failed: {exc}") from exc
-        marker = mark_calibration_shot(session_dir, kind, config, for_camera=for_camera)
+        try:
+            marker = mark_calibration_shot(session_dir, kind, config, for_camera=for_camera)
+        except Exception:
+            logger.exception("calibration board analysis failed for %s", session_dir.name)
+            raise
+        logger.info(
+            "calibration capture saved: id=%s kind=%s camera=%s board_frames=%s",
+            session_dir.name,
+            kind,
+            for_camera,
+            marker["board_frames_detected"],
+        )
         return {"id": session_dir.name, **marker}
 
     @app.get("/api/calibration/shots")
@@ -291,6 +447,7 @@ def create_app(
                 calib_compute.update(state="done", result=result)
             except Exception as exc:
                 calib_compute.update(state="error", error=str(exc))
+                logger.exception("calibration computation failed")
 
         calib_compute.clear()
         calib_compute.update(state="running", stage="starting")
@@ -363,7 +520,8 @@ def create_app(
         try:
             runtime.arm()
         except Exception as exc:
-            raise HTTPException(500, f"failed to arm: {exc}") from exc
+            logger.exception("arm failed")
+            raise HTTPException(500, f"failed to arm: {_describe(exc)}") from exc
         return {"armed": True}
 
     @app.post("/api/capture/disarm")
@@ -376,7 +534,8 @@ def create_app(
         try:
             runtime.manual_trigger()
         except Exception as exc:
-            raise HTTPException(500, f"manual trigger failed: {exc}") from exc
+            logger.exception("manual trigger failed")
+            raise HTTPException(500, f"manual trigger failed: {_describe(exc)}") from exc
         return {"triggered": True}
 
     return app
@@ -385,7 +544,17 @@ def create_app(
 def main() -> None:
     import uvicorn
 
-    config = load_config()
+    # uvicorn configures its own loggers but leaves the root logger alone, so
+    # without this every golf_sim logger.info()/debug() is swallowed by
+    # logging.lastResort (WARNING-only). That silently hid the calibration
+    # diagnostics we rely on to debug installed builds from the log file.
+    logging.basicConfig(
+        level=os.environ.get("GOLF_SIM_LOG_LEVEL", "INFO").upper(),
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+
+    config_path = Path(os.environ.get("GOLF_SIM_CONFIG_PATH", DEFAULT_CONFIG_PATH))
+    config = apply_env_overrides(load_config(config_path))
 
     # Pose2Sim's filtering module deadlocks if its qtagg/plt.figure() probe
     # first runs on a worker thread (which is how background processing runs).
@@ -401,7 +570,12 @@ def main() -> None:
         except Exception:
             logger.warning("pose stack preload skipped", exc_info=True)
 
-    uvicorn.run(create_app(config), host=config.api.host, port=config.api.port)
+    uvicorn.run(
+        create_app(config, config_path=config_path),
+        host=config.api.host,
+        port=config.api.port,
+        access_log=False,
+    )
 
 
 if __name__ == "__main__":
