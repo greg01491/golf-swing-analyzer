@@ -4,6 +4,7 @@ import type { Landmarks, PPosition, SessionDetail } from '../api'
 import { METRIC_INFO, VIEW_LABELS, formatMetricName, type MetricView } from '../metricInfo'
 import PPositionPanel from './PPositionPanel'
 import Skeleton3D from './Skeleton3D'
+import SwingPlaneLine from './SwingPlaneLine'
 
 interface Props {
   sessionId: string
@@ -276,19 +277,22 @@ export default function SessionView({ sessionId, onChanged, focusedMetric, onFoc
             {detail.cameras.map((cam, index) => (
               <div className="panel pro-camera" key={cam}>
                 <h3>{cameraLabel(cam)}</h3>
-                <video
-                  ref={(node) => {
-                    videoRefs.current[cam] = node
-                  }}
-                  src={videoSources[cam]}
-                  controls={index === 0}
-                  loop
-                  onPlay={index === 0 ? () => syncProVideos('play') : undefined}
-                  onPause={index === 0 ? () => syncProVideos('pause') : undefined}
-                  onSeeked={index === 0 ? () => syncProVideos('seek') : undefined}
-                  onRateChange={index === 0 ? () => syncProVideos('rate') : undefined}
-                  onTimeUpdate={index === 0 ? () => syncProVideos('seek') : undefined}
-                />
+                <div className="video-frame">
+                  <video
+                    ref={(node) => {
+                      videoRefs.current[cam] = node
+                    }}
+                    src={videoSources[cam]}
+                    controls={index === 0}
+                    loop
+                    onPlay={index === 0 ? () => syncProVideos('play') : undefined}
+                    onPause={index === 0 ? () => syncProVideos('pause') : undefined}
+                    onSeeked={index === 0 ? () => syncProVideos('seek') : undefined}
+                    onRateChange={index === 0 ? () => syncProVideos('rate') : undefined}
+                    onTimeUpdate={index === 0 ? () => syncProVideos('seek') : undefined}
+                  />
+                  <SwingPlaneLine camera={cam} />
+                </div>
                 {index > 0 && <span className="muted sync-label">synced to left view</span>}
               </div>
             ))}
@@ -357,6 +361,7 @@ export default function SessionView({ sessionId, onChanged, focusedMetric, onFoc
                   title={`ball detected at address (${ball.impact_source})`}
                 />
               )}
+              <SwingPlaneLine camera={camera} />
             </div>
             <div className="video-controls">
               {overlayAvailable && (
