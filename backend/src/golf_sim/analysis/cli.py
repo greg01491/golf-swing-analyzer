@@ -268,16 +268,13 @@ def analyze_session(session_dir: Path, config) -> Path:
                     )
 
     report = compute_metrics(
-        seq, config.metrics, phases=phases, handedness=config.analysis.golfer_handedness
-    )
-
-    report = compute_metrics(
         seq,
         config.metrics,
         phases=phases,
         handedness=config.analysis.golfer_handedness,
         club=club,
     )
+    tips = generate_tips(report)
 
     out_path = session_dir / "metrics.json"
     payload = {
