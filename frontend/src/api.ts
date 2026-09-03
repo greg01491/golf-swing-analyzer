@@ -1,6 +1,10 @@
 export interface SessionSummary {
   id: string
   created_at: string | null
+  // which section the swing is filed under in the sidebar (e.g. "My Swings"
+  // or "Professional Swings"); friendly name shown instead of the timestamp
+  group: string
+  label: string | null
   cameras: string[]
   has_pose: boolean
   has_3d: boolean
@@ -22,6 +26,12 @@ export interface TipEntry {
   direction: string
   severity: number
   text: string
+}
+
+export interface StatsSession {
+  id: string
+  created_at: string | null
+  metrics: MetricEntry[]
 }
 
 export interface PPosition {
@@ -48,6 +58,14 @@ export interface SessionDetail {
   overlay_cameras?: string[]
   metrics: {
     phases?: { address_frame: number; top_frame: number; impact_frame: number }
+    ball?: {
+      detected: boolean
+      source_camera?: string
+      address_xy: [number, number] | null
+      radius: number | null
+      impact_frame: number | null
+      impact_source: 'ball' | 'estimated'
+    }
     tracking_quality?: TrackingQuality
     metrics: MetricEntry[]
     tips: TipEntry[]
@@ -143,8 +161,23 @@ async function json<T>(res: Response): Promise<T> {
 
 export const api = {
   sessions: () => fetch(`${BASE}/api/sessions`).then((r) => json<SessionSummary[]>(r)),
+  stats: () => fetch(`${BASE}/api/stats`).then((r) => json<StatsSession[]>(r)),
   session: (id: string) =>
     fetch(`${BASE}/api/sessions/${id}`).then((r) => json<SessionDetail>(r)),
+  updateSession: (id: string, patch: { group?: string; label?: string }) =>
+    fetch(`${BASE}/api/sessions/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    }).then((r) => json<{ id: string; group: string; label: string | null }>(r)),
+  deleteVideos: (id: string) =>
+    fetch(`${BASE}/api/sessions/${id}/media`, { method: 'DELETE' }).then((r) =>
+      json<{ deleted: number; bytes_freed: number }>(r),
+    ),
+  deleteAllVideos: () =>
+    fetch(`${BASE}/api/sessions/media`, { method: 'DELETE' }).then((r) =>
+      json<{ deleted: number; bytes_freed: number; sessions_cleared: number }>(r),
+    ),
   landmarks: (id: string) =>
     fetch(`${BASE}/api/sessions/${id}/landmarks`).then((r) => json<Landmarks>(r)),
   // cb= busts Chromium's media cache, which is separate from the HTTP cache

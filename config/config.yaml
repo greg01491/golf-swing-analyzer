@@ -44,14 +44,14 @@ cameras:
     role: camera_1
     width: 1280
     height: 720
-    fps: 60
+    fps: 120
     rotation_deg: 0
   - id: 2
     name: HD USB Camera
     role: camera_2
     width: 1280
     height: 720
-    fps: 60
+    fps: 120
     rotation_deg: 270
 pose:
   # Pose2Sim settings (spec.md §4.3; OQ2 resolved -- RTMPose via Pose2Sim).
@@ -91,12 +91,45 @@ metrics:
     # Lateral hip sway as % of stance width, relative to address.
     hip_sway_top_pct: {min: 0, max: 30}
     hip_sway_impact_pct: {min: 0, max: 40}
+    # Rotation & sequencing
+    hip_rotation_impact_deg: {min: 30, max: 50}
+    shoulder_tilt_impact_deg: {min: 25, max: 45}
+    # Posture & stability (lower-is-better faults; range is the "acceptable" band)
+    head_movement_cm: {min: 0, max: 10}
+    spine_angle_change_deg: {min: 0, max: 10}
+    early_extension_cm: {min: 0, max: 8}
+    reverse_spine_deg: {min: 0, max: 12}
+    # Body angles
+    knee_flex_deg: {min: 145, max: 172}
+    lead_arm_deg: {min: 160, max: 180}
 
 analysis:
   # Which arm is "lead" (nearer the target). Body-pose tracking alone can't
   # tell left-handed from right-handed golfers apart, and the P-system
   # checkpoints (P3/P5/P9 etc.) are defined relative to the lead arm.
   golfer_handedness: right
+
+ball:
+  # Coloured-ball detection is hue-based. The ball is yellow (measured hue
+  # ~22-30); this range excludes skin/orange below and the green mat above.
+  hue_min: 15
+  hue_max: 42
+  # Use the face-on camera for ball/club contact: the ball is clearer there.
+  detection_camera_role: camera_2
+  # In the front-on view the ball sits below the golfer's feet, so search from
+  # the space between the legs instead of the wrists.
+  detection_anchor: legs
+  min_saturation: 50
+  min_value: 50
+  min_circularity: 0.4
+  min_area_px: 20
+  present_min_fraction: 0.1
+  disappearance_confirm_frames: 2
+  roi:
+    x_min_offset: -140
+    x_max_offset: 140
+    y_min_offset: 100
+    y_max_offset: 320
 
 processing:
   # Automatically run the full analysis pipeline (2D pose -> 3D -> metrics ->

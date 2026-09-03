@@ -57,6 +57,55 @@ _TIP_RULES: dict[str, tuple[str, str]] = {
         "There's a lot of lateral slide through impact. A stable lead side gives "
         "the club something to release against -- feel like you post up on your lead leg.",
     ),
+    "hip_rotation_impact_deg": (
+        "Your hips aren't opening enough by impact, so your arms have to do the "
+        "work. Feel like your lead hip clears behind you as the club comes down.",
+        "Your hips are spinning open very fast through impact, which can leave the "
+        "face open and cost strike quality. Let the hips lead, but keep the chest "
+        "and arms in sync rather than racing the lower body.",
+    ),
+    "shoulder_tilt_impact_deg": (
+        "Your shoulders are fairly level at impact. A touch more tilt away from the "
+        "target keeps you behind the ball and helps you hit up on it.",
+        "Your trail shoulder is dropping a lot at impact, which can add loft and "
+        "encourage a scoop. Feel a bit more level as your body rotates through.",
+    ),
+    "head_movement_cm": (
+        "",  # very still is fine
+        "Your head is travelling a fair bit during the swing. Pick a spot and try "
+        "to keep your head over the ball until well after impact -- it steadies the "
+        "whole strike.",
+    ),
+    "spine_angle_change_deg": (
+        "",
+        "You're losing your posture through impact (standing up out of your spine "
+        "angle). Feel like your chest stays down and your belt buckle -- not your "
+        "head -- rotates to the target.",
+    ),
+    "early_extension_cm": (
+        "",
+        "Your hips are pushing toward the ball in the downswing (early extension). "
+        "Feel like your belt line stays back against an imaginary wall so your arms "
+        "keep room to swing down in front of you.",
+    ),
+    "reverse_spine_deg": (
+        "",
+        "Your upper body is leaning toward the target at the top (reverse tilt), "
+        "which strains the back and steepens the downswing. Feel your trail shoulder "
+        "stay high and your spine tilt slightly away from the target at the top.",
+    ),
+    "knee_flex_deg": (
+        "Your knees are quite bent at address, which can restrict your turn. Stand "
+        "a touch taller with a lighter, athletic knee flex.",
+        "Your legs are nearly straight at address, costing you balance and spring. "
+        "Add a little athletic knee flex, weight over the middle of your feet.",
+    ),
+    "lead_arm_deg": (
+        "Your lead arm is bending at the top, which changes your swing radius and "
+        "makes the low point harder to control. Feel it stay comfortably extended "
+        "(not locked) to the top.",
+        "",  # a straight lead arm at the top is good
+    ),
 }
 
 

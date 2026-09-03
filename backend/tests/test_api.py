@@ -101,6 +101,54 @@ def test_sessions_listing_and_detail(client, config):
     assert detail["metrics"] == {"metrics": [], "tips": []}
 
 
+def test_session_defaults_to_my_swings_group(client, config):
+    _fake_session(config)
+    listing = client.get("/api/sessions").json()
+    assert listing[0]["group"] == "My Swings"
+    assert listing[0]["label"] is None
+
+
+def test_patch_session_group_and_label(client, config):
+    _fake_session(config)
+    res = client.patch(
+        "/api/sessions/20260101T000000Z-test0001",
+        json={"group": "Professional Swings", "label": "Rory McIlroy Iron Swing"},
+    )
+    assert res.status_code == 200
+    assert res.json() == {
+        "id": "20260101T000000Z-test0001",
+        "group": "Professional Swings",
+        "label": "Rory McIlroy Iron Swing",
+    }
+    # persisted to metadata.json so it survives reprocessing and shows in listing
+    listing = client.get("/api/sessions").json()
+    assert listing[0]["group"] == "Professional Swings"
+    assert listing[0]["label"] == "Rory McIlroy Iron Swing"
+    detail = client.get("/api/sessions/20260101T000000Z-test0001").json()
+    assert detail["metadata"]["label"] == "Rory McIlroy Iron Swing"
+
+
+def test_patch_session_blank_label_clears_and_resets_group(client, config):
+    _fake_session(config)
+    client.patch(
+        "/api/sessions/20260101T000000Z-test0001",
+        json={"group": "Professional Swings", "label": "Temp"},
+    )
+    res = client.patch(
+        "/api/sessions/20260101T000000Z-test0001",
+        json={"group": "  ", "label": "  "},
+    )
+    assert res.json() == {
+        "id": "20260101T000000Z-test0001",
+        "group": "My Swings",
+        "label": None,
+    }
+
+
+def test_patch_missing_session_404(client):
+    assert client.patch("/api/sessions/nope", json={"label": "x"}).status_code == 404
+
+
 def test_session_detail_survives_nan_metrics(client, config):
     # a metric derived from a keypoint the pose model lost in some frames can
     # be NaN; metrics.json stores it literally, and Starlette's JSON encoder
@@ -150,6 +198,73 @@ def test_overlay_video_serving_and_detail_flag(client, config):
     # raw clip still served without the flag
     raw = client.get("/api/sessions/20260101T000000Z-test0001/video/camera_1")
     assert raw.content == b"fake"
+
+
+def test_delete_videos_keeps_stats(client, config):
+    session_dir = _fake_session(config)
+    (session_dir / "pose2sim" / "pose").mkdir(parents=True)
+    (session_dir / "pose2sim" / "pose" / "camera_1_pose.mp4").write_bytes(b"overlay")
+
+    resp = client.delete("/api/sessions/20260101T000000Z-test0001/media")
+    assert resp.status_code == 200
+    assert resp.json()["deleted"] == 3  # two raw clips + one overlay
+
+    # clips gone, stats retained
+    assert not (session_dir / "camera_1.mp4").exists()
+    assert not (session_dir / "pose2sim" / "pose" / "camera_1_pose.mp4").exists()
+    assert (session_dir / "metrics.json").exists()
+
+    detail = client.get("/api/sessions/20260101T000000Z-test0001").json()
+    assert detail["cameras"] == []
+    assert detail["metrics"] == {"metrics": [], "tips": []}
+
+
+def test_delete_videos_404(client):
+    assert client.delete("/api/sessions/nope/media").status_code == 404
+
+
+def test_delete_all_videos_across_sessions(client, config):
+    a = _fake_session(config, session_id="20260101T000000Z-a")
+    b = _fake_session(config, session_id="20260102T000000Z-b")
+    (b / "pose2sim" / "pose").mkdir(parents=True)
+    (b / "pose2sim" / "pose" / "camera_1_pose.mp4").write_bytes(b"overlay")
+
+    resp = client.delete("/api/sessions/media")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["deleted"] == 5  # a: 2 clips, b: 2 clips + 1 overlay
+    assert body["sessions_cleared"] == 2
+
+    # every clip gone, stats retained for both
+    assert not (a / "camera_1.mp4").exists()
+    assert not (b / "pose2sim" / "pose" / "camera_1_pose.mp4").exists()
+    assert (a / "metrics.json").exists()
+    assert (b / "metrics.json").exists()
+
+
+def test_delete_all_videos_empty_is_noop(client):
+    resp = client.delete("/api/sessions/media")
+    assert resp.status_code == 200
+    assert resp.json() == {"deleted": 0, "bytes_freed": 0, "sessions_cleared": 0}
+
+
+def test_stats_aggregates_metrics_oldest_first(client, config):
+    _fake_session(config, session_id="20260101T000000Z-a", with_metrics=False)
+    _fake_session(config, session_id="20260102T000000Z-b", with_metrics=False)
+    root = Path(config.storage.data_dir) / "sessions"
+    (root / "20260101T000000Z-a" / "metadata.json").write_text(
+        json.dumps({"created_at": "2026-01-01T00:00:00+00:00"})
+    )
+    (root / "20260102T000000Z-b" / "metadata.json").write_text(
+        json.dumps({"created_at": "2026-01-02T00:00:00+00:00"})
+    )
+    metric = {"name": "hip_turn_deg", "value": 42.0, "unit": "deg", "in_range": True, "range": None}
+    (root / "20260101T000000Z-a" / "metrics.json").write_text(json.dumps({"metrics": [metric]}))
+    (root / "20260102T000000Z-b" / "metrics.json").write_text(json.dumps({"metrics": [metric]}))
+
+    stats = client.get("/api/stats").json()
+    assert [s["id"] for s in stats] == ["20260101T000000Z-a", "20260102T000000Z-b"]
+    assert stats[0]["metrics"][0]["name"] == "hip_turn_deg"
 
 
 def test_config_roundtrip_and_validation(client, tmp_path):

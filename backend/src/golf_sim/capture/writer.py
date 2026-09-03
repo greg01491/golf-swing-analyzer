@@ -11,12 +11,17 @@ from pathlib import Path
 import cv2
 
 from golf_sim.capture.frame import Frame
-from golf_sim.capture.transcode import ensure_h264
+from golf_sim.capture.transcode import encode_frames_h264, ensure_h264
 
 
 def write_clip(frames: list[Frame], path: Path, fps: float) -> None:
     if not frames:
         raise ValueError("cannot write a clip with no frames")
+    # Pipe raw frames straight to ffmpeg so the clip is encoded to H.264 once.
+    # Falls back to OpenCV's mp4v writer plus ensure_h264 (a second, lossy
+    # re-encode) only when the direct ffmpeg path is unavailable or fails.
+    if encode_frames_h264([frame.image for frame in frames], path, fps):
+        return
     height, width = frames[0].image.shape[:2]
     # OpenCV can only encode mp4v here (no H.264 without an external DLL);
     # ensure_h264 re-encodes right after so the clip actually plays in the

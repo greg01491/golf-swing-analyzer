@@ -17,10 +17,14 @@ from ruamel.yaml import YAML
 
 from golf_sim.api.runtime import CaptureRuntime
 from golf_sim.api.sessions import (
+    delete_all_session_media,
+    delete_session_media,
     list_sessions,
     session_detail,
     session_dir_for,
     session_landmarks,
+    sessions_stats,
+    set_session_meta,
 )
 from golf_sim.config import DEFAULT_CONFIG_PATH, REPO_ROOT, Config, load_config
 
@@ -115,10 +119,40 @@ def create_app(
     def get_sessions():
         return list_sessions(data_dir)
 
+    @app.get("/api/stats")
+    def get_stats():
+        return sessions_stats(data_dir)
+
     @app.get("/api/sessions/{session_id}")
     def get_session(session_id: str):
         try:
             return session_detail(data_dir, session_id)
+        except FileNotFoundError as exc:
+            raise HTTPException(404, str(exc)) from exc
+
+    @app.patch("/api/sessions/{session_id}")
+    def patch_session(session_id: str, patch: dict):
+        # move a swing into a group ("My Swings"/"Professional Swings") and/or
+        # rename it (e.g. "Rory McIlroy Iron Swing"); only provided keys change
+        group = patch.get("group")
+        label = patch.get("label")
+        if group is not None and not isinstance(group, str):
+            raise HTTPException(422, "group must be a string")
+        if label is not None and not isinstance(label, str):
+            raise HTTPException(422, "label must be a string")
+        try:
+            return set_session_meta(data_dir, session_id, group=group, label=label)
+        except FileNotFoundError as exc:
+            raise HTTPException(404, str(exc)) from exc
+
+    @app.delete("/api/sessions/media")
+    def delete_all_media():
+        return delete_all_session_media(data_dir)
+
+    @app.delete("/api/sessions/{session_id}/media")
+    def delete_media(session_id: str):
+        try:
+            return delete_session_media(data_dir, session_id)
         except FileNotFoundError as exc:
             raise HTTPException(404, str(exc)) from exc
 

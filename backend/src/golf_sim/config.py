@@ -72,6 +72,34 @@ class AnalysisConfig(BaseModel):
     golfer_handedness: Literal["right", "left"] = "right"
 
 
+class BallROICoords(BaseModel):
+    # ROI offsets relative to the chosen anchor point (wrists or feet).
+    x_min_offset: int = -140
+    x_max_offset: int = 140
+    y_min_offset: int = 100
+    y_max_offset: int = 320
+
+
+class BallConfig(BaseModel):
+    # OpenCV hue range (0-179) for the coloured ball. The ball is yellow
+    # (measured hue ~22-30); this range excludes skin/orange below and the
+    # green mat above.
+    hue_min: int = 15
+    hue_max: int = 42
+    # Use the face-on camera for ball/club contact: the ball is clearer there.
+    detection_camera_role: str = "camera_2"
+    # In the face-on view the ball sits below the golfer's feet, so anchor the
+    # search on the feet rather than the wrists.
+    detection_anchor: Literal["wrists", "feet", "legs"] = "legs"
+    min_saturation: int = 50
+    min_value: int = 50
+    min_circularity: float = 0.4
+    min_area_px: float = 20.0
+    present_min_fraction: float = 0.1
+    disappearance_confirm_frames: int = 2
+    roi: BallROICoords = Field(default_factory=BallROICoords)
+
+
 class ProcessingConfig(BaseModel):
     auto_process: bool
 
@@ -111,6 +139,7 @@ class Config(BaseModel):
     calibration: CalibrationConfig
     metrics: MetricsConfig
     analysis: AnalysisConfig
+    ball: BallConfig = Field(default_factory=BallConfig)
     processing: ProcessingConfig
     storage: StorageConfig
     api: ApiConfig

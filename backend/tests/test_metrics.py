@@ -149,3 +149,25 @@ def test_report_serializes_to_dict():
 
     assert set(payload) == {"phases", "metrics"}
     assert all({"name", "value", "unit", "in_range", "range"} <= set(m) for m in payload["metrics"])
+
+
+def test_extended_metrics_present_and_sane():
+    seq = synthetic_swing()
+    report = compute_metrics(seq, _config())
+    by_name = {m.name: m for m in report.metrics}
+
+    # The synthetic golfer's head and hips are fixed and the body returns to
+    # address orientation at impact, so the "stability" faults read ~0.
+    assert by_name["head_movement_cm"].value == pytest.approx(0, abs=1)
+    assert by_name["spine_angle_change_deg"].value == pytest.approx(0, abs=1)
+    assert by_name["early_extension_cm"].value == pytest.approx(0, abs=1)
+    assert by_name["reverse_spine_deg"].value == pytest.approx(0, abs=1)
+    assert by_name["hip_rotation_impact_deg"].value == pytest.approx(0, abs=3)
+
+    # Raw halves of the tempo ratio.
+    assert by_name["backswing_time_s"].value == pytest.approx(BACKSWING_FRAMES / FPS, abs=0.1)
+    assert by_name["downswing_time_s"].value == pytest.approx(DOWNSWING_FRAMES / FPS, abs=0.1)
+
+    # Speed and plane are finite and positive for a real motion.
+    assert by_name["hand_speed_impact_ms"].value > 0
+    assert np.isfinite(by_name["swing_plane_deg"].value)

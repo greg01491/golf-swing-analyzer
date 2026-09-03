@@ -72,7 +72,7 @@ button.armed {
 }
 
 aside {
-  width: 280px;
+  width: 210px;
   border-right: 1px solid var(--border);
   padding: 12px;
   overflow-y: auto;
@@ -80,6 +80,87 @@ aside {
 
 aside h3 {
   margin-top: 0;
+}
+
+.session-group + .session-group {
+  margin-top: 16px;
+}
+
+.session-group-title {
+  margin: 0 0 6px;
+  padding: 4px 2px;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  text-align: left;
+}
+
+.session-group-title:hover {
+  color: var(--text);
+}
+
+.group-caret {
+  display: inline-block;
+  transition: transform 0.15s ease;
+  font-size: 10px;
+}
+
+.group-caret.collapsed {
+  transform: rotate(-90deg);
+}
+
+.group-count {
+  margin-left: auto;
+  font-size: 11px;
+  letter-spacing: 0;
+  color: var(--muted);
+  background: var(--border);
+  border-radius: 10px;
+  padding: 1px 7px;
+}
+
+.session-label {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.session-meta-editor {
+  margin: -4px 0 12px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.session-meta-editor summary {
+  cursor: pointer;
+}
+
+.session-meta-fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.session-meta-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.session-meta-fields input,
+.session-meta-fields select {
+  min-width: 200px;
 }
 
 aside ul {
@@ -158,10 +239,112 @@ main {
   min-width: 320px;
 }
 
+.playback-row .video-panel {
+  flex: 5;
+}
+
+.metrics-panel {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 4px 28px;
+  align-items: start;
+}
+
+.metrics-panel > h3 {
+  grid-column: 1 / -1;
+}
+
+.metrics-panel .metric-group table {
+  width: 100%;
+}
+
+.video-frame video {
+  display: block;
+  /* cap height so tall portrait (front-on) clips fit on a laptop screen;
+     max-width keeps landscape clips within the panel -- width/height auto
+     preserve the native aspect ratio under whichever limit binds first */
+  max-width: 100%;
+  max-height: 68vh;
+  width: auto;
+  height: auto;
+}
+
+.video-controls {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.video-controls .overlay-toggle {
+  margin: 0;
+}
+
+.video-controls .speed-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  white-space: nowrap;
+}
+
+.video-controls .speed-control input[type='range'] {
+  width: 160px;
+}
+
+.video-controls .speed-value {
+  min-width: 3.2em;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.skeleton-panel {
+  display: flex;
+  justify-content: center;
+}
+
+.collapse-toggle {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: inherit;
+  border-radius: 6px;
+  padding: 4px 12px;
+  font-size: 0.85em;
+  cursor: pointer;
+}
+
+.collapse-toggle:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
 .camera-tabs {
   display: flex;
   gap: 6px;
   margin-bottom: 8px;
+}
+
+.video-frame {
+  position: relative;
+  /* shrink-wrap the (possibly height-capped) video and centre it, so the
+     absolutely-positioned ball marker stays aligned to the video pixels */
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 auto;
+}
+
+.ball-marker {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  margin-left: -7px;
+  margin-top: -7px;
+  border-radius: 999px;
+  border: 2px solid #facc15;
+  background: rgba(250, 204, 21, 0.35);
+  box-shadow: 0 0 0 3px rgba(250, 204, 21, 0.15);
+  pointer-events: none;
 }
 
 .overlay-toggle {
@@ -172,6 +355,80 @@ main {
   color: var(--muted);
   margin-top: 6px;
   cursor: pointer;
+}
+
+.metric-group + .metric-group {
+  margin-top: 14px;
+}
+
+.metric-group-title {
+  margin: 0 0 4px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+.metric-name {
+  vertical-align: middle;
+}
+
+.help-icon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  margin-left: 6px;
+  border-radius: 999px;
+  border: 1px solid var(--muted);
+  color: var(--muted);
+  font-size: 10px;
+  font-style: italic;
+  font-family: Georgia, 'Times New Roman', serif;
+  line-height: 1;
+  cursor: help;
+  vertical-align: middle;
+  user-select: none;
+}
+
+.help-icon:hover,
+.help-icon:focus {
+  color: #fff;
+  border-color: #fff;
+  outline: none;
+}
+
+.help-tooltip {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  display: none;
+  flex-direction: column;
+  gap: 6px;
+  width: 260px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  border: 1px solid #2a3138;
+  background: #11161c;
+  color: #dfe6ee;
+  font-size: 12px;
+  font-style: normal;
+  line-height: 1.4;
+  text-align: left;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+}
+
+.help-icon:hover .help-tooltip,
+.help-icon:focus .help-tooltip {
+  display: flex;
+}
+
+.help-good {
+  color: var(--muted);
 }
 
 video {
@@ -609,3 +866,81 @@ ol li {
   gap: 10px;
   margin: 0 0 6px;
 }
+
+/* in-range metric values show green, out-of-range red */
+.metric-value.in-range {
+  color: var(--accent);
+}
+
+.metric-value.out-range {
+  color: var(--error);
+}
+
+.delete-videos {
+  color: var(--error);
+  border-color: #5b2020;
+}
+
+.delete-videos:hover:not(:disabled) {
+  border-color: var(--error);
+}
+
+.delete-videos:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.delete-all-videos {
+  width: 100%;
+  margin-top: 12px;
+}
+
+/* stats / trends view */
+.stats-view {
+  padding: 16px;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.stat-card {
+  margin-bottom: 0;
+}
+
+.stat-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.stat-card-head h4 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.stat-latest {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.stat-target {
+  margin: 2px 0 6px;
+  font-size: 12px;
+}
+
+.stat-svg {
+  width: 100%;
+  height: 200px;
+  display: block;
+}
+
+.stat-axis {
+  fill: var(--muted);
+  font-size: 11px;
+}
+

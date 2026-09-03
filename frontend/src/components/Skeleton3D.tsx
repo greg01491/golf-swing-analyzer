@@ -28,22 +28,6 @@ const BONES: [string, string, number][] = [
   ['RAnkle', 'RBigToe', 0.02],
   ['LAnkle', 'LBigToe', 0.02],
 ]
-const JOINTS = [
-  'Neck',
-  'RShoulder',
-  'LShoulder',
-  'RElbow',
-  'LElbow',
-  'RWrist',
-  'LWrist',
-  'Hip',
-  'RHip',
-  'LHip',
-  'RKnee',
-  'LKnee',
-  'RAnkle',
-  'LAnkle',
-]
 
 interface Props {
   landmarks: Landmarks
@@ -93,22 +77,37 @@ export default function Skeleton3D({ landmarks, time, idealFrame, width = 420, h
 
     // Frame the figure: centre X/Z on the whole-clip mean (so lateral sway
     // still shows without drifting out of view) and drop the feet to y=0.
+    // Also track the vertical extent (bounding box) and mean height so the
+    // camera can be aimed at the body's centre and pulled back just far
+    // enough to fill the view -- otherwise a bent-over golfer sits low with
+    // a lot of empty space above them.
     let cx = 0
     let cz = 0
+    let cyRaw = 0
     let count = 0
     let minY = Infinity
+    let maxY = -Infinity
     for (const f of landmarks.frames) {
       for (const m of f) {
         if (m[0] == null) continue
         cx += m[horiz[0]] as number
         cz += m[horiz[1]] as number
+        const y = (m[up] as number) * sign
+        cyRaw += y
         count++
-        minY = Math.min(minY, (m[up] as number) * sign)
+        minY = Math.min(minY, y)
+        maxY = Math.max(maxY, y)
       }
     }
     cx /= count || 1
     cz /= count || 1
+    cyRaw /= count || 1
     if (!Number.isFinite(minY)) minY = 0
+    if (!Number.isFinite(maxY)) maxY = minY + 1.7
+    // world coords put the feet at y=0 (minY offset), so these are heights
+    // above the mat: the swing's full vertical span and the body's mean.
+    const modelHeight = Math.max(maxY - minY, 0.5)
+    const centerY = cyRaw - minY
 
     const toWorld = (m: readonly (number | null)[]): THREE.Vector3 | null =>
       m[0] == null
@@ -124,7 +123,11 @@ export default function Skeleton3D({ landmarks, time, idealFrame, width = 420, h
     scene.background = new THREE.Color('#0a0e12')
 
     const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 100)
-    camera.position.set(0, 1.1, 3.4)
+    // Aim at the body's vertical centre and pull back just enough that its
+    // full height fills the frame (fov 45deg) with a small margin, so the
+    // figure is centred instead of sitting low with dead space above.
+    const fitDistance = (modelHeight / 2 / Math.tan((45 * Math.PI) / 180 / 2)) * 1.3
+    camera.position.set(0, centerY, fitDistance)
 
     const renderer = new THREE.WebGLRenderer({ antialias: true })
     renderer.setPixelRatio(window.devicePixelRatio)
@@ -132,7 +135,7 @@ export default function Skeleton3D({ landmarks, time, idealFrame, width = 420, h
     mount.appendChild(renderer.domElement)
 
     const controls = new OrbitControls(camera, renderer.domElement)
-    controls.target.set(0, 1.0, 0)
+    controls.target.set(0, centerY, 0)
     controls.enablePan = false
     controls.minDistance = 1.5
     controls.maxDistance = 8
@@ -157,43 +160,126 @@ export default function Skeleton3D({ landmarks, time, idealFrame, width = 420, h
       return x
     }
 
-    // --- humanoid meshes (body mode) ---
-    // low roughness + a touch of metalness reads as the smooth injection-
-    // moulded mannequin look rather than matte tubes
-    const limbMat = track(
-      new THREE.MeshStandardMaterial({ color: '#eef1f5', roughness: 0.35, metalness: 0.1 }),
+    // --- humanoid mannequin (body mode) ---
+    // A smooth, stylised avatar (Sportsbox-like): tapered rounded capsules built
+    // with LatheGeometry so limbs blend into their joints without hard tube
+    // ends. Matte white throughout, short black neck, thin purple joint rings.
+    const whiteMat = track(
+      new THREE.MeshStandardMaterial({ color: '#eef0f4', roughness: 0.9, metalness: 0.0 }),
     )
-    const jointMat = track(
-      new THREE.MeshStandardMaterial({ color: '#6d5cf6', roughness: 0.3, metalness: 0.15 }),
+    const blackMat = track(
+      new THREE.MeshStandardMaterial({ color: '#15181d', roughness: 0.6, metalness: 0.05 }),
     )
-    const headMat = track(
-      new THREE.MeshStandardMaterial({ color: '#f4f6fa', roughness: 0.3, metalness: 0.1 }),
+    const ringMat = track(
+      new THREE.MeshStandardMaterial({ color: '#7c3aed', roughness: 0.45, metalness: 0.15 }),
     )
 
-    const boneMeshes: { mesh: THREE.Mesh; a: string; b: string }[] = []
-    const jointMeshes: { mesh: THREE.Mesh; name: string }[] = []
+    // A unit-height (local y in [-0.5, 0.5]) rounded capsule whose radius tapers
+    // from rA (joint a, bottom) to rB (joint b, top), with hemispherical caps so
+    // adjacent parts overlap into smooth blends rather than hard intersections.
+    const capsuleGeo = (rA: number, rB: number): THREE.LatheGeometry => {
+      const pts: THREE.Vector2[] = []
+      const capSeg = 7
+      for (let i = 0; i <= capSeg; i++) {
+        const t = (Math.PI / 2) * (i / capSeg)
+        pts.push(new THREE.Vector2(Math.sin(t) * rA, -Math.cos(t) * rA)) // bottom cap
+      }
+      const midSeg = 6
+      for (let i = 1; i <= midSeg; i++) {
+        const t = i / midSeg
+        pts.push(new THREE.Vector2(rA + (rB - rA) * t, t)) // tapered shaft, y: 0..1
+      }
+      for (let i = 1; i <= capSeg; i++) {
+        const t = (Math.PI / 2) * (i / capSeg)
+        pts.push(new THREE.Vector2(Math.cos(t) * rB, 1 + Math.sin(t) * rB)) // top cap
+      }
+      for (const p of pts) p.y -= 0.5 // centre the shaft on the origin
+      return track(new THREE.LatheGeometry(pts, 26))
+    }
+
+    const segMeshes: { mesh: THREE.Mesh; a: string; b: string }[] = []
+    const ringMeshes: { mesh: THREE.Mesh; at: string; a: string; b: string }[] = []
+    const handMeshes: { mesh: THREE.Mesh; wrist: string; elbow: string }[] = []
+    const footMeshes: { mesh: THREE.Mesh; ankle: string; toe: string }[] = []
     let headMesh: THREE.Mesh | null = null
+    let neckMesh: THREE.Mesh | null = null
     const bodyGroup = new THREE.Group()
     const skeletonGroup = new THREE.Group()
 
     if (mode === 'body') {
-      for (const [a, b, r] of BONES) {
-        // unit-length capsule along +Y, scaled to bone length each frame; the
-        // rounded caps overlap the joint spheres so limbs blend smoothly into
-        // joints instead of showing hard tube ends
-        const geo = track(new THREE.CapsuleGeometry(r, 1, 6, 16))
-        const mesh = new THREE.Mesh(geo, limbMat)
-        boneMeshes.push({ mesh, a, b })
+      // Smooth tapered limbs (thicker near the body, narrowing toward the far
+      // joint) plus a single rounded tapered torso and a thin pelvis block.
+      // Once oriented, local +Y maps to joint b, so rB is the radius at b.
+      const SEGMENTS: { a: string; b: string; rA: number; rB: number }[] = [
+        { a: 'Neck', b: 'Hip', rA: 0.135, rB: 0.092 }, // torso: wide shoulders -> waist
+        { a: 'RHip', b: 'LHip', rA: 0.075, rB: 0.075 }, // pelvis: thin rounded block
+        { a: 'RShoulder', b: 'RElbow', rA: 0.05, rB: 0.032 }, // upper arms
+        { a: 'LShoulder', b: 'LElbow', rA: 0.05, rB: 0.032 },
+        { a: 'RElbow', b: 'RWrist', rA: 0.032, rB: 0.022 }, // forearms (thinner)
+        { a: 'LElbow', b: 'LWrist', rA: 0.032, rB: 0.022 },
+        { a: 'RHip', b: 'RKnee', rA: 0.082, rB: 0.05 }, // thighs: wide hips -> knees
+        { a: 'LHip', b: 'LKnee', rA: 0.082, rB: 0.05 },
+        { a: 'RKnee', b: 'RAnkle', rA: 0.052, rB: 0.033 }, // lower legs
+        { a: 'LKnee', b: 'LAnkle', rA: 0.052, rB: 0.033 },
+      ]
+      for (const s of SEGMENTS) {
+        const mesh = new THREE.Mesh(capsuleGeo(s.rA, s.rB), whiteMat)
+        segMeshes.push({ mesh, a: s.a, b: s.b })
         bodyGroup.add(mesh)
       }
-      for (const name of JOINTS) {
-        const geo = track(new THREE.SphereGeometry(0.035, 16, 12))
-        const mesh = new THREE.Mesh(geo, jointMat)
-        jointMeshes.push({ mesh, name })
+
+      // Thin purple ring around each major joint; torus axis = adjacent limb dir.
+      const RINGS: { at: string; a: string; b: string; r: number }[] = [
+        { at: 'RShoulder', a: 'RShoulder', b: 'RElbow', r: 0.052 },
+        { at: 'LShoulder', a: 'LShoulder', b: 'LElbow', r: 0.052 },
+        { at: 'RElbow', a: 'RElbow', b: 'RWrist', r: 0.036 },
+        { at: 'LElbow', a: 'LElbow', b: 'LWrist', r: 0.036 },
+        { at: 'RWrist', a: 'RElbow', b: 'RWrist', r: 0.026 },
+        { at: 'LWrist', a: 'LElbow', b: 'LWrist', r: 0.026 },
+        { at: 'RHip', a: 'RHip', b: 'RKnee', r: 0.07 },
+        { at: 'LHip', a: 'LHip', b: 'LKnee', r: 0.07 },
+        { at: 'RKnee', a: 'RKnee', b: 'RAnkle', r: 0.056 },
+        { at: 'LKnee', a: 'LKnee', b: 'LAnkle', r: 0.056 },
+        { at: 'RAnkle', a: 'RKnee', b: 'RAnkle', r: 0.04 },
+        { at: 'LAnkle', a: 'LKnee', b: 'LAnkle', r: 0.04 },
+      ]
+      for (const rg of RINGS) {
+        const geo = track(new THREE.TorusGeometry(rg.r, 0.008, 8, 28))
+        const mesh = new THREE.Mesh(geo, ringMat)
+        ringMeshes.push({ mesh, at: rg.at, a: rg.a, b: rg.b })
         bodyGroup.add(mesh)
       }
-      headMesh = new THREE.Mesh(track(new THREE.SphereGeometry(0.09, 20, 16)), headMat)
+
+      // Egg-shaped white head (smooth vertical ellipsoid, no features).
+      headMesh = new THREE.Mesh(track(new THREE.SphereGeometry(0.093, 28, 20)), whiteMat)
+      headMesh.scale.set(0.82, 1.16, 0.9)
       bodyGroup.add(headMesh)
+
+      // Short, narrow black neck.
+      neckMesh = new THREE.Mesh(track(new THREE.CylinderGeometry(0.028, 0.032, 1, 18)), blackMat)
+      bodyGroup.add(neckMesh)
+
+      // Rounded paddle hands (no fingers).
+      for (const [wrist, elbow] of [
+        ['RWrist', 'RElbow'],
+        ['LWrist', 'LElbow'],
+      ] as const) {
+        const mesh = new THREE.Mesh(track(new THREE.SphereGeometry(0.04, 18, 14)), whiteMat)
+        mesh.scale.set(0.62, 1.15, 0.36)
+        handMeshes.push({ mesh, wrist, elbow })
+        bodyGroup.add(mesh)
+      }
+
+      // Wedge feet with flat soles (flattened box along ankle -> toe).
+      for (const [ankle, toe] of [
+        ['RAnkle', 'RBigToe'],
+        ['LAnkle', 'LBigToe'],
+      ] as const) {
+        const mesh = new THREE.Mesh(track(new THREE.BoxGeometry(0.08, 1, 0.055)), whiteMat)
+        footMeshes.push({ mesh, ankle, toe })
+        bodyGroup.add(mesh)
+      }
+
       scene.add(bodyGroup)
     } else {
       // thin-line skeleton
@@ -215,6 +301,7 @@ export default function Skeleton3D({ landmarks, time, idealFrame, width = 420, h
     scene.add(ghostLines)
 
     const Y = new THREE.Vector3(0, 1, 0)
+    const Z = new THREE.Vector3(0, 0, 1)
     const orient = (mesh: THREE.Mesh, a: THREE.Vector3, b: THREE.Vector3) => {
       const dir = new THREE.Vector3().subVectors(b, a)
       const len = dir.length() || 1e-6
@@ -259,7 +346,7 @@ export default function Skeleton3D({ landmarks, time, idealFrame, width = 420, h
       }
 
       if (mode === 'body') {
-        for (const { mesh, a, b } of boneMeshes) {
+        for (const { mesh, a, b } of segMeshes) {
           const pa = at(a)
           const pb = at(b)
           if (pa && pb) {
@@ -269,22 +356,60 @@ export default function Skeleton3D({ landmarks, time, idealFrame, width = 420, h
             mesh.visible = false
           }
         }
-        for (const { mesh, name } of jointMeshes) {
-          const p = at(name)
-          if (p) {
+        for (const { mesh, at: joint, a, b } of ringMeshes) {
+          const p = at(joint)
+          const pa = at(a)
+          const pb = at(b)
+          if (p && pa && pb) {
             mesh.visible = true
             mesh.position.copy(p)
+            mesh.quaternion.setFromUnitVectors(Z, new THREE.Vector3().subVectors(pb, pa).normalize())
           } else {
             mesh.visible = false
           }
         }
-        if (headMesh) {
-          const head = at('Head') ?? at('Neck')
-          if (head) {
-            headMesh.visible = true
-            headMesh.position.copy(head)
+        // head + short neck, oriented along the neck->head (spine top) axis
+        const neckP = at('Neck')
+        const headP = at('Head') ?? neckP
+        if (headMesh && neckMesh && neckP && headP) {
+          const spine = new THREE.Vector3().subVectors(headP, neckP)
+          const len = spine.length() || 1e-6
+          const dir = spine.clone().normalize()
+          neckMesh.visible = true
+          orient(neckMesh, neckP, neckP.clone().addScaledVector(dir, len * 0.45))
+          headMesh.visible = true
+          headMesh.position.copy(neckP).addScaledVector(dir, len * 0.82)
+          headMesh.quaternion.setFromUnitVectors(Y, dir)
+        } else {
+          if (headMesh) headMesh.visible = false
+          if (neckMesh) neckMesh.visible = false
+        }
+        // paddle hands, just past the wrist along the forearm
+        for (const { mesh, wrist, elbow } of handMeshes) {
+          const pw = at(wrist)
+          const pe = at(elbow)
+          if (pw && pe) {
+            mesh.visible = true
+            const dir = new THREE.Vector3().subVectors(pw, pe).normalize()
+            mesh.position.copy(pw).addScaledVector(dir, 0.05)
+            mesh.quaternion.setFromUnitVectors(Y, dir)
           } else {
-            headMesh.visible = false
+            mesh.visible = false
+          }
+        }
+        // wedge feet, ankle -> big toe
+        for (const { mesh, ankle, toe } of footMeshes) {
+          const pa = at(ankle)
+          const pt = at(toe)
+          if (pa && pt) {
+            mesh.visible = true
+            const dir = new THREE.Vector3().subVectors(pt, pa)
+            const len = dir.length() || 1e-6
+            mesh.position.copy(pa).addScaledVector(dir, 0.5)
+            mesh.quaternion.setFromUnitVectors(Y, dir.clone().normalize())
+            mesh.scale.set(1, Math.max(len, 0.14), 1)
+          } else {
+            mesh.visible = false
           }
         }
       } else {

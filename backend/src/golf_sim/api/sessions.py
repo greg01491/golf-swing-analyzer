@@ -31,6 +31,13 @@ def sessions_root(data_dir: Path) -> Path:
     return Path(data_dir) / "sessions"
 
 
+# The default group a swing belongs to until it's explicitly moved. Reference
+# swings (e.g. tour-pro captures) go under PRO_GROUP so the UI can show them in
+# a separate section that gives users a green-metric benchmark to compare to.
+DEFAULT_GROUP = "My Swings"
+PRO_GROUP = "Professional Swings"
+
+
 def _sort_stamp(entry: dict) -> str:
     """Newest-first sort key: normalized UTC timestamp when metadata has one
     (session folder names changed format once, so name ordering alone would
@@ -64,6 +71,11 @@ def list_sessions(data_dir: Path) -> list[dict]:
             {
                 "id": session_dir.name,
                 "created_at": metadata.get("created_at"),
+                # grouping/label let the UI file swings under "My Swings" vs
+                # "Professional Swings" and show a friendly name (e.g. "Rory
+                # McIlroy Iron Swing") instead of the raw timestamp id
+                "group": metadata.get("group") or DEFAULT_GROUP,
+                "label": metadata.get("label") or None,
                 "cameras": sorted(p.stem for p in session_dir.glob("camera_*.mp4")),
                 "has_pose": (session_dir / "pose2sim" / "pose").is_dir(),
                 "has_3d": (
@@ -86,6 +98,126 @@ def session_dir_for(data_dir: Path, session_id: str) -> Path:
     if not session_dir.is_dir():
         raise FileNotFoundError(f"no such session: {session_id}")
     return session_dir
+
+
+def set_session_meta(
+    data_dir: Path,
+    session_id: str,
+    *,
+    group: str | None = None,
+    label: str | None = None,
+) -> dict:
+    """Move a swing into a group and/or give it a friendly name, persisted in
+    the session's metadata.json so it survives reprocessing. Only the fields
+    passed are touched; an empty string clears a label / resets the group to
+    the default. Returns the resulting {id, group, label}."""
+    session_dir = session_dir_for(data_dir, session_id)
+    meta_path = session_dir / "metadata.json"
+    try:
+        metadata = json.loads(meta_path.read_text()) if meta_path.exists() else {}
+    except (json.JSONDecodeError, OSError):
+        metadata = {}
+
+    if group is not None:
+        metadata["group"] = group.strip() or DEFAULT_GROUP
+    if label is not None:
+        cleaned = label.strip()
+        if cleaned:
+            metadata["label"] = cleaned
+        else:
+            metadata.pop("label", None)
+
+    meta_path.write_text(json.dumps(metadata, indent=2))
+    return {
+        "id": session_id,
+        "group": metadata.get("group") or DEFAULT_GROUP,
+        "label": metadata.get("label") or None,
+    }
+
+
+def delete_session_media(data_dir: Path, session_id: str) -> dict:
+    """Delete a session's video files (raw clips + pose-overlay debug videos)
+    to reclaim disk space, while preserving metrics.json/metadata.json so the
+    stats history survives. Returns how many files were removed and the bytes
+    freed."""
+    session_dir = session_dir_for(data_dir, session_id)
+    removed = 0
+    freed = 0
+    for video in session_dir.rglob("*.mp4"):
+        try:
+            freed += video.stat().st_size
+            video.unlink()
+            removed += 1
+        except OSError:
+            # a locked/already-gone file must not abort the whole cleanup
+            continue
+    return {"deleted": removed, "bytes_freed": freed}
+
+
+def delete_all_session_media(data_dir: Path) -> dict:
+    """Delete the video files of *every* session (raw clips + pose-overlay
+    debug videos) to reclaim disk space in bulk, while preserving each
+    session's metrics.json/metadata.json so the stats history survives.
+    Returns totals plus the number of sessions that had videos removed."""
+    root = sessions_root(data_dir)
+    removed = 0
+    freed = 0
+    sessions_cleared = 0
+    if not root.is_dir():
+        return {"deleted": 0, "bytes_freed": 0, "sessions_cleared": 0}
+    for session_dir in root.iterdir():
+        if not session_dir.is_dir():
+            continue
+        session_removed = 0
+        for video in session_dir.rglob("*.mp4"):
+            try:
+                freed += video.stat().st_size
+                video.unlink()
+                session_removed += 1
+            except OSError:
+                # a locked/already-gone file must not abort the whole cleanup
+                continue
+        removed += session_removed
+        if session_removed:
+            sessions_cleared += 1
+    return {"deleted": removed, "bytes_freed": freed, "sessions_cleared": sessions_cleared}
+
+
+def sessions_stats(data_dir: Path) -> list[dict]:
+    """Per-session metric values across every processed swing, oldest-first,
+    for the stats/trend view. Reads only metrics.json (which survives video
+    deletion), so the history remains after clips are cleared."""
+    root = sessions_root(data_dir)
+    if not root.is_dir():
+        return []
+    out = []
+    for session_dir in root.iterdir():
+        if not session_dir.is_dir():
+            continue
+        if (session_dir / "calibration_shot.json").exists():
+            continue
+        metrics_path = session_dir / "metrics.json"
+        if not metrics_path.exists():
+            continue
+        try:
+            data = json.loads(metrics_path.read_text())
+        except (json.JSONDecodeError, OSError):
+            continue
+        meta_path = session_dir / "metadata.json"
+        try:
+            metadata = json.loads(meta_path.read_text()) if meta_path.exists() else {}
+        except (json.JSONDecodeError, OSError):
+            metadata = {}
+        out.append(
+            {
+                "id": session_dir.name,
+                "created_at": metadata.get("created_at"),
+                "metrics": _json_safe(data.get("metrics", [])),
+            }
+        )
+    # oldest-first so the frontend can plot a left-to-right time series
+    out.sort(key=_sort_stamp)
+    return out
 
 
 def session_detail(data_dir: Path, session_id: str) -> dict:
