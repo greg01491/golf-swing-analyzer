@@ -26,7 +26,7 @@ import numpy as np
 from golf_sim.analysis.frame_of_reference import horizontal_angle_series, vertical_axis
 from golf_sim.analysis.p_positions import Handedness, lead_markers
 from golf_sim.analysis.phases import SwingPhases
-from golf_sim.config import MetricsConfig
+from golf_sim.config import Club, MetricsConfig
 from golf_sim.trc import LandmarkSequence
 
 # (shoulder_turn_fraction, hip_turn_fraction, lead_arm_elevation_deg or None)
@@ -185,8 +185,10 @@ def build_ideal_frame(
     return out
 
 
-def _target_midpoint(metrics_config: MetricsConfig, key: str, default: float) -> float:
-    ref = metrics_config.reference_ranges.get(key)
+def _target_midpoint(
+    metrics_config: MetricsConfig, key: str, default: float, club: Club | None = None
+) -> float:
+    ref = metrics_config.ranges_for_club(club).get(key)
     return default if ref is None else (ref.min + ref.max) / 2
 
 
@@ -196,11 +198,12 @@ def build_all_ideal_frames(
     p_position_frames: dict[str, int],
     metrics_config: MetricsConfig,
     handedness: Handedness = "right",
+    club: Club | None = None,
 ) -> dict[str, dict[str, np.ndarray]]:
     """{P-position name: {marker_name: xyz}} for every detected P-position."""
     proportions = measure_proportions(seq, phases.address_frame, handedness)
-    shoulder_mid = _target_midpoint(metrics_config, "shoulder_turn_deg", default=90.0)
-    hip_mid = _target_midpoint(metrics_config, "hip_turn_deg", default=45.0)
+    shoulder_mid = _target_midpoint(metrics_config, "shoulder_turn_deg", default=90.0, club=club)
+    hip_mid = _target_midpoint(metrics_config, "hip_turn_deg", default=45.0, club=club)
 
     backswing_sign = float(
         np.sign(

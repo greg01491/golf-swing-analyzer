@@ -26,16 +26,16 @@ from golf_sim.analysis.p_positions import detect_p_positions
 from golf_sim.analysis.phases import PhaseDetectionError, SwingPhases, detect_phases
 from golf_sim.analysis.quality import assess_tracking_quality
 from golf_sim.analysis.tips import generate_tips, tips_to_dicts
-from golf_sim.config import REPO_ROOT, load_config
+from golf_sim.config import Club, load_config, resolve_state_path
 from golf_sim.trc import read_trc
 
 
-def _p_positions_payload(seq, report, config) -> list[dict]:
+def _p_positions_payload(seq, report, config, club: Club | None = None) -> list[dict]:
     handedness = config.analysis.golfer_handedness
     positions = detect_p_positions(seq, report.phases, handedness=handedness)
     frame_by_name = {p.name: p.frame_index for p in positions}
     ideal_frames = build_all_ideal_frames(
-        seq, report.phases, frame_by_name, config.metrics, handedness=handedness
+        seq, report.phases, frame_by_name, config.metrics, handedness=handedness, club=club
     )
     return [
         {
@@ -169,10 +169,13 @@ def analyze_session(session_dir: Path, config) -> Path:
         "impact_frame": None,
         "impact_source": "estimated",
     }
+    club: Club | None = None
     meta_path = session_dir / "metadata.json"
     if meta_path.exists():
         try:
-            delay = json.loads(meta_path.read_text()).get("pre_capture_delay_s")
+            metadata = json.loads(meta_path.read_text())
+            delay = metadata.get("pre_capture_delay_s")
+            club = metadata.get("club")
             if delay is not None:
                 phases = detect_phases(seq, impact_hint_frame=round(float(delay) * seq.fps))
         except (json.JSONDecodeError, OSError, ValueError):
@@ -267,18 +270,27 @@ def analyze_session(session_dir: Path, config) -> Path:
     report = compute_metrics(
         seq, config.metrics, phases=phases, handedness=config.analysis.golfer_handedness
     )
-    tips = generate_tips(report)
+
+    report = compute_metrics(
+        seq,
+        config.metrics,
+        phases=phases,
+        handedness=config.analysis.golfer_handedness,
+        club=club,
+    )
 
     out_path = session_dir / "metrics.json"
     payload = {
         "source_trc": trc_path.name,
+        "club": club,
+        "club_profile": config.metrics.club_profile_mapping.get(club) if club else None,
         # quality first so the UI can caveat everything below it when the
         # reconstruction is too poor to trust (see analysis.quality)
         "tracking_quality": assess_tracking_quality(seq).to_dict(),
         **report.to_dict(),
         "tips": tips_to_dicts(tips),
         "ball": ball_info,
-        "p_positions": _p_positions_payload(seq, report, config),
+        "p_positions": _p_positions_payload(seq, report, config, club=club),
     }
     out_path.write_text(json.dumps(payload, indent=2))
     return out_path
@@ -292,7 +304,7 @@ def main() -> None:
 
     config = load_config()
     if args.latest:
-        sessions = sorted((REPO_ROOT / config.storage.data_dir / "sessions").iterdir())
+        sessions = sorted((resolve_state_path(config.storage.data_dir) / "sessions").iterdir())
         session_dir = sessions[-1]
     elif args.session_dir is not None:
         session_dir = args.session_dir

@@ -1,21 +1,22 @@
 const { app, BrowserWindow, dialog } = require("electron");
-const path = require("node:path");
+const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const http = require("node:http");
-const { spawn } = require("node:child_process");
+const path = require("node:path");
 
 const isDev = !app.isPackaged;
-// Set by the desktop launcher (launch.ps1): load the built UI and manage the
-// backend even though Electron isn't "packaged" (we run in-place from the repo
-// so the Python venv, config.yaml and data/ all stay where they already live).
+// Set by the desktop launcher (launch.ps1): load the built UI even though
+// Electron isn't "packaged" (we run in-place from the repo so the Python venv,
+// config.yaml and data/ all stay where they already live).
 const appMode = process.env.GOLF_SIM_APP === "1";
 const useDevServer = Boolean(process.env.VITE_DEV_SERVER_URL) || (isDev && !appMode);
 
-const BACKEND_HOST = "127.0.0.1";
-const BACKEND_PORT = 8765;
-const BACKEND_URL = `http://${BACKEND_HOST}:${BACKEND_PORT}`;
-
-let backendProc = null;
+const backendUrl = "http://127.0.0.1:8765";
+let backendProcess = null;
+let backendLog = null;
+let rendererLog = null;
+let backendSpawnFailed = false;
+let mainWindow = null;
 
 function repoRoot() {
   // frontend/electron -> repo root
@@ -29,78 +30,128 @@ function backendPython() {
     : path.join(root, "backend", ".venv", "bin", "python");
 }
 
-function pingBackend() {
+function writeRendererLog(message) {
+  rendererLog?.write(`${new Date().toISOString()} ${message}\n`);
+}
+
+process.on("uncaughtException", (error) => {
+  writeRendererLog(`main uncaught exception: ${error.stack ?? error}`);
+});
+process.on("unhandledRejection", (reason) => {
+  writeRendererLog(`main unhandled rejection: ${reason?.stack ?? reason}`);
+});
+
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+}
+
+app.on("second-instance", () => {
+  if (!mainWindow) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.focus();
+});
+
+function healthCheck() {
   return new Promise((resolve) => {
-    const req = http.get(`${BACKEND_URL}/api/capture/status`, (res) => {
-      res.resume();
-      resolve(res.statusCode >= 200 && res.statusCode < 500);
+    const request = http.get(`${backendUrl}/api/health`, (response) => {
+      response.resume();
+      resolve(response.statusCode === 200);
     });
-    req.on("error", () => resolve(false));
-    req.setTimeout(1000, () => {
-      req.destroy();
-      resolve(false);
-    });
+    request.setTimeout(1000, () => request.destroy());
+    request.on("error", () => resolve(false));
   });
 }
 
-const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-
-async function waitForBackend(timeoutMs = 40000) {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    if (await pingBackend()) return true;
-    await wait(500);
+async function waitForBackend(timeoutMs = 180000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await healthCheck()) return true;
+    if (backendSpawnFailed) return false;
+    if (backendProcess?.exitCode != null) return false;
+    await new Promise((resolve) => setTimeout(resolve, 500));
   }
   return false;
 }
 
-async function startBackend() {
-  // Don't launch a second copy if one is already listening (e.g. a dev server
-  // started from a terminal); the new process would just fail to bind the port.
-  if (await pingBackend()) return true;
-
-  const python = backendPython();
-  if (!fs.existsSync(python)) {
-    dialog.showErrorBox(
-      "Golf Swing Analyzer",
-      `Could not find the Python environment at:\n${python}\n\n` +
-        "Set it up once with (in the backend folder):\n" +
-        "  python -m venv .venv\n" +
-        "  .venv\\Scripts\\pip install -e .",
-    );
-    return false;
+function runtimePaths() {
+  const root = app.getPath("userData");
+  const configDir = path.join(root, "config");
+  const dataDir = path.join(root, "data");
+  const calibrationDir = path.join(root, "calibration");
+  const logsDir = path.join(root, "logs");
+  for (const directory of [configDir, dataDir, calibrationDir, logsDir]) {
+    fs.mkdirSync(directory, { recursive: true });
   }
 
-  backendProc = spawn(python, ["-m", "golf_sim.api.server"], {
-    cwd: path.join(repoRoot(), "backend"),
-    stdio: "ignore",
+  const configPath = path.join(configDir, "config.yaml");
+  const defaultConfig = isDev
+    ? path.resolve(__dirname, "../../config/config.yaml")
+    : path.join(process.resourcesPath, "defaults", "config.yaml");
+  if (!fs.existsSync(configPath)) fs.copyFileSync(defaultConfig, configPath);
+
+  return {
+    configPath,
+    dataDir,
+    calibrationDir,
+    logPath: path.join(logsDir, "backend.log"),
+    rendererLogPath: path.join(logsDir, "renderer.log"),
+  };
+}
+
+async function startBackend() {
+  const paths = runtimePaths();
+  rendererLog = fs.createWriteStream(paths.rendererLogPath, { flags: "a" });
+  rendererLog.write(`\n--- renderer start ${new Date().toISOString()} ---\n`);
+  if (await healthCheck()) return { ready: true, logPath: paths.logPath };
+
+  backendLog = fs.createWriteStream(paths.logPath, { flags: "a" });
+  backendLog.write(`\n--- backend start ${new Date().toISOString()} ---\n`);
+
+  const command = isDev
+    ? {
+        executable: process.env.GOLF_SIM_PYTHON ?? backendPython(),
+        args: ["-m", "golf_sim.api.server"],
+      }
+    : {
+        executable: path.join(process.resourcesPath, "backend", "golf-sim-backend.exe"),
+        args: [],
+      };
+
+  backendProcess = spawn(command.executable, command.args, {
+    cwd: isDev ? path.join(repoRoot(), "backend") : process.resourcesPath,
+    env: {
+      ...process.env,
+      GOLF_SIM_CONFIG_PATH: paths.configPath,
+      GOLF_SIM_DATA_DIR: paths.dataDir,
+      GOLF_SIM_CALIBRATION_DIR: paths.calibrationDir,
+      TORCH_HOME: isDev
+        ? path.resolve(__dirname, "../../backend/runtime-models")
+        : path.join(process.resourcesPath, "models", "rtmlib"),
+    },
+    stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
   });
-  backendProc.on("exit", () => {
-    backendProc = null;
+  backendProcess.stdout.pipe(backendLog, { end: false });
+  backendProcess.stderr.pipe(backendLog, { end: false });
+  backendProcess.on("error", (error) => {
+    backendSpawnFailed = true;
+    backendLog.write(`${error.stack ?? error}\n`);
   });
 
-  const up = await waitForBackend();
-  if (!up) {
-    dialog.showErrorBox(
-      "Golf Swing Analyzer",
-      "The analysis backend did not start in time. Try launching again.",
-    );
-  }
-  return up;
+  return { ready: await waitForBackend(), logPath: paths.logPath };
 }
 
 function stopBackend() {
-  // Only kill a backend we started ourselves; leave an externally-run dev
-  // server alone.
-  if (backendProc && !backendProc.killed) {
-    backendProc.kill();
-    backendProc = null;
-  }
+  if (backendProcess?.exitCode == null) backendProcess?.kill();
+  backendProcess = null;
+  backendLog?.end();
+  backendLog = null;
+  rendererLog?.end();
+  rendererLog = null;
 }
 
 function createWindow() {
-  const win = new BrowserWindow({
+  mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
     show: false,
@@ -112,12 +163,34 @@ function createWindow() {
     },
   });
 
-  win.once("ready-to-show", () => win.show());
-
+  mainWindow.once("ready-to-show", () => mainWindow.show());
+  mainWindow.on("closed", () => {
+    mainWindow = null;
+  });
+  mainWindow.webContents.on("console-message", (_event, detailsOrLevel, message, line, sourceId) => {
+    const details =
+      typeof detailsOrLevel === "object"
+        ? detailsOrLevel
+        : { level: detailsOrLevel, message, lineNumber: line, sourceId };
+    const level = details.level ?? 0;
+    if (level < 2) return;
+    writeRendererLog(
+      `console[${level}] ${details.message} (${details.sourceId}:${details.lineNumber})`,
+    );
+  });
+  mainWindow.webContents.on("render-process-gone", (_event, details) => {
+    writeRendererLog(`renderer gone: ${JSON.stringify(details)}`);
+  });
+  mainWindow.webContents.on(
+    "did-fail-load",
+    (_event, errorCode, errorDescription, validatedURL) => {
+      writeRendererLog(`load failed: ${errorCode} ${errorDescription} ${validatedURL}`);
+    },
+  );
   if (useDevServer) {
-    win.loadURL(process.env.VITE_DEV_SERVER_URL ?? "http://localhost:5173");
+    mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL ?? "http://localhost:5173");
   } else {
-    win.loadFile(path.join(__dirname, "../dist/index.html"));
+    mainWindow.loadFile(path.join(__dirname, "../dist/index.html"));
   }
 }
 
@@ -127,22 +200,24 @@ app.whenReady().then(async () => {
   if (process.platform === "win32") {
     app.setAppUserModelId("com.gregbrown.golfswinganalyzer");
   }
-  // In pure Vite dev mode the developer runs the backend themselves; otherwise
-  // (packaged app or desktop-launcher app mode) we bring it up automatically.
-  if (appMode || app.isPackaged) {
-    await startBackend();
+
+  const backend = await startBackend();
+  if (!backend.ready) {
+    dialog.showErrorBox(
+      "Golf Swing Analyzer could not start",
+      `The analysis service failed to start. No capture was attempted.\n\nDiagnostic log: ${backend.logPath ?? "unavailable"}`,
+    );
+    app.quit();
+    return;
   }
 
   createWindow();
-
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    if (!mainWindow) createWindow();
   });
 });
 
+app.on("before-quit", stopBackend);
 app.on("window-all-closed", () => {
-  stopBackend();
   if (process.platform !== "darwin") app.quit();
 });
-
-app.on("before-quit", stopBackend);

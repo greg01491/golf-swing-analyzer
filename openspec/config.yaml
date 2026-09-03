@@ -1,13 +1,52 @@
 schema: spec-driven
+githubCopilot:
+  cloudAgent: false
 
 # Project context (optional)
 # This is shown to AI when creating artifacts.
-# Add your tech stack, conventions, style guides, domain knowledge, etc.
-# Example:
-#   context: |
-#     Tech stack: TypeScript, React, Node.js
-#     We use conventional commits
-#     Domain: e-commerce platform
+# Fuller detail lives in openspec/project.md -- read it for anything non-obvious.
+context: |
+  Golf Swing Analyzer: a desktop app for a home golf rig. Two USB cameras
+  (camera_1 down-the-line, camera_2 face-on) buffer continuously; a mic hears ball
+  impact and triggers a capture, so the saved clip covers the swing before and after
+  impact. Clips go through 2D pose estimation and triangulation into a 3D skeleton,
+  which is measured against club-aware reference ranges and turned into coaching tips.
+
+  Tech stack:
+  - Backend: Python >=3.11 at backend/src/golf_sim. FastAPI + uvicorn, Pydantic v2,
+    NumPy, OpenCV, sounddevice, pygrabber, ruamel.yaml, psutil, imageio-ffmpeg.
+    Pose2Sim (RTMPose, HALPE-26) behind the optional "pose" extra.
+  - Frontend: React 19 + TypeScript + Vite + three.js, wrapped by Electron
+    (frontend/). Talks to the backend over HTTP on 127.0.0.1:8765; Electron does not
+    spawn the backend.
+
+  Module boundaries (backend/src/golf_sim) -- go through public functions only:
+  audio/ (mic, level, trigger) -> capture/ (buffers, extraction, writing) ->
+  pose/ (2D pose, calibration, triangulation) -> analysis/ (phases, P-positions,
+  metrics, tips, quality); storage/ owns data/; api/ exposes it all; diagnostics/
+  checks the PC and cameras.
+
+  Conventions:
+  - Never hardcode a tunable. Everything user-adjustable lives in config/config.yaml.
+  - Python: black + ruff (line length 100, py311, rules E,F,I,UP). Type hints on
+    public functions. Tests in backend/tests, run with pytest.
+  - TypeScript: oxlint + Prettier.
+  - Comments explain WHY, especially hardware workarounds (Windows camera index
+    shuffling, mp4v vs H.264 playback, Qt/matplotlib main-thread deadlocks).
+    Preserve that reasoning when editing.
+  - Tests inject synthetic camera/audio sources; keep new hardware code behind a
+    seam a fake can replace.
+  - spec.md, plan.md and tasks.md are the project's original spec->plan->tasks cycle
+    and are maintained by hand; keep them consistent when scope changes.
+
+  Domain notes:
+  - P1-P10 are the P-System swing checkpoints. Club tracking is out of scope, so they
+    are approximated from body pose via documented geometric proxies -- say so
+    wherever they surface.
+  - Handedness is configured (analysis.golfer_handedness), never inferred.
+  - Club affects reference ranges and the ideal pose, not the tip text.
+  - Reconstruction quality varies; analysis/quality.py flags low-confidence swings.
+    Never present those checkpoints as fact.
 
 # Per-artifact rules (optional)
 # Add custom rules for specific artifacts.

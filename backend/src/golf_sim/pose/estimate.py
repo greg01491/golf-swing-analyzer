@@ -22,7 +22,9 @@ class PoseEstimationResult:
     overlay_videos: list[Path]
 
 
-def run_pose_estimation(session_dir: Path, pose_config: PoseConfig) -> PoseEstimationResult:
+def run_pose_estimation(
+    session_dir: Path, pose_config: PoseConfig, *, transcode_overlays: bool = True
+) -> PoseEstimationResult:
     from Pose2Sim import Pose2Sim
 
     project_dir = prepare_pose_project(session_dir)
@@ -39,15 +41,18 @@ def run_pose_estimation(session_dir: Path, pose_config: PoseConfig) -> PoseEstim
     }
     Pose2Sim.poseEstimation(config)
 
-    # Pose2Sim writes the overlay videos through OpenCV too, so they're
-    # mp4v -- unplayable in the app's Chromium player without this.
-    for video in overlay_videos(project_dir):
-        ensure_h264(video)
+    videos = overlay_videos(project_dir)
+    if transcode_overlays:
+        # Pose2Sim writes overlays through OpenCV as mp4v, which Chromium
+        # cannot play. The API pipeline defers this nonessential work until
+        # results are ready; direct callers retain the original behaviour.
+        for video in videos:
+            ensure_h264(video)
 
     result = PoseEstimationResult(
         project_dir=project_dir,
         landmark_dirs=landmark_json_dirs(project_dir),
-        overlay_videos=overlay_videos(project_dir),
+        overlay_videos=videos,
     )
     if not result.landmark_dirs:
         raise RuntimeError(

@@ -14,7 +14,7 @@ import numpy as np
 
 from golf_sim.analysis.frame_of_reference import horizontal_angle_series, vertical_axis
 from golf_sim.analysis.phases import SwingPhases, detect_phases, hands_midpoint
-from golf_sim.config import MetricsConfig
+from golf_sim.config import Club, MetricsConfig
 from golf_sim.trc import LandmarkSequence
 
 
@@ -173,6 +173,7 @@ def compute_metrics(
     metrics_config: MetricsConfig,
     phases: SwingPhases | None = None,
     handedness: str = "right",
+    club: Club | None = None,
 ) -> MetricsReport:
     if phases is None:
         phases = detect_phases(seq)
@@ -266,9 +267,10 @@ def compute_metrics(
     path_horiz = float(np.linalg.norm(path[horizontal_axes]))
     values["swing_plane_deg"] = (float(np.degrees(np.arctan2(path_up, path_horiz))), "deg")
 
+    reference_ranges = metrics_config.ranges_for_club(club)
     results = []
     for name, (value, unit) in values.items():
-        ref = metrics_config.reference_ranges.get(name)
+        ref = reference_ranges.get(name)
         if ref is None or not np.isfinite(value):
             in_range, lo, hi = None, None, None
         else:

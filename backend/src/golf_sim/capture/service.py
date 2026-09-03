@@ -12,7 +12,7 @@ from golf_sim.capture.resample import resample_to_grid
 from golf_sim.capture.source import CameraSource, OpenCVCameraSource
 from golf_sim.capture.stream import CameraStream
 from golf_sim.capture.writer import SessionWriter
-from golf_sim.config import REPO_ROOT, Config
+from golf_sim.config import Config, resolve_state_path
 
 
 class CaptureService:
@@ -51,7 +51,7 @@ class CaptureService:
                 "fps": dev.fps,
             }
 
-        self.writer = SessionWriter(REPO_ROOT / config.storage.data_dir)
+        self.writer = SessionWriter(resolve_state_path(config.storage.data_dir))
 
     def start(self) -> None:
         for stream in self.streams.values():
@@ -61,7 +61,7 @@ class CaptureService:
         for stream in self.streams.values():
             stream.stop()
 
-    def capture_now(self, trigger_time: float | None = None) -> Path:
+    def capture_now(self, trigger_time: float | None = None, club: str | None = None) -> Path:
         """trigger_time defaults to now (manual/dev capture); the audio
         trigger service passes the exact moment it detected the impact so
         the extracted window is anchored to that instant, not to whenever
@@ -82,4 +82,10 @@ class CaptureService:
             clips[role] = resample_to_grid(
                 raw, start_time, duration, fps=self.camera_meta[role]["fps"]
             )
-        return self.writer.write_session(clips, self.camera_meta, pre, duration)
+        return self.writer.write_session(
+            clips,
+            self.camera_meta,
+            pre,
+            duration,
+            extra_metadata={"club": club} if club is not None else None,
+        )

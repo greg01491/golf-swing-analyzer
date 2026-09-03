@@ -16,6 +16,38 @@ class AudioDeviceInfo(BaseModel):
     default_samplerate: float
 
 
+def resolve_input_device(device: int | str | None) -> int | None:
+    """Resolve a configured input, recovering when Windows renumbers devices."""
+    hostapis = sd.query_hostapis()
+    devices = sd.query_devices()
+
+    if device is not None:
+        try:
+            if isinstance(device, str):
+                hostapi_name, separator, device_name = device.partition(":")
+                for index, info in enumerate(devices):
+                    if (
+                        info["max_input_channels"] > 0
+                        and info["name"] == (device_name if separator else hostapi_name)
+                        and (not separator or hostapis[info["hostapi"]]["name"] == hostapi_name)
+                    ):
+                        return index
+                raise ValueError(f"configured input device is unavailable: {device}")
+            info = sd.query_devices(device)
+            if info["max_input_channels"] > 0:
+                return device
+        except (ValueError, sd.PortAudioError):
+            pass
+
+    candidates = [
+        (index, info) for index, info in enumerate(devices) if info["max_input_channels"] > 0
+    ]
+    if not candidates:
+        raise RuntimeError("no microphone input devices are available")
+    wasapi = [index for index, info in candidates if "WASAPI" in hostapis[info["hostapi"]]["name"]]
+    return wasapi[0] if wasapi else candidates[0][0]
+
+
 def list_input_devices() -> list[AudioDeviceInfo]:
     hostapis = sd.query_hostapis()
     devices = []

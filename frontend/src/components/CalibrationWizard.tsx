@@ -48,6 +48,7 @@ function SetupGate({ onConfirm }: { onConfirm: (distanceM: number) => void }) {
       setConfig(c)
       const current = (c as any).calibration?.checkerboard_square_size_mm
       if (current) setSquareSize(String(current))
+      setDistance(String((c as any).calibration?.camera_distance_m ?? 3.115))
     })
   }, [])
 
@@ -63,7 +64,11 @@ function SetupGate({ onConfirm }: { onConfirm: (distanceM: number) => void }) {
     try {
       await api.saveConfig({
         ...config,
-        calibration: { ...config.calibration, checkerboard_square_size_mm: squareSizeNum },
+        calibration: {
+          ...config.calibration,
+          checkerboard_square_size_mm: squareSizeNum,
+          camera_distance_m: distanceNum,
+        },
       })
       onConfirm(distanceNum)
     } catch (e) {
@@ -124,7 +129,7 @@ function SetupGate({ onConfirm }: { onConfirm: (distanceM: number) => void }) {
           <input
             value={distance}
             onChange={(e) => setDistance(e.target.value)}
-            placeholder="e.g. 2.5"
+            placeholder="3.115"
           />
         </label>
       </div>
@@ -150,6 +155,7 @@ export default function CalibrationWizard() {
   const [editingDistance, setEditingDistance] = useState(false)
   const [compute, setCompute] = useState<CalibrationComputeStatus | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [savingCapture, setSavingCapture] = useState(false)
 
   const refreshShots = () => api.calibrationShots().then(setShots)
 
@@ -178,6 +184,7 @@ export default function CalibrationWizard() {
   // render cycle
   const capture = async (kind: 'intrinsics' | 'extrinsics', forCamera: string) => {
     setError(null)
+    setSavingCapture(true)
     try {
       // the position capture records both cameras at once, so a per-camera
       // tag would be meaningless there -- only lens shots carry one
@@ -192,6 +199,8 @@ export default function CalibrationWizard() {
     } catch (e) {
       setError(String(e))
       return null
+    } finally {
+      setSavingCapture(false)
     }
   }
 
@@ -219,6 +228,11 @@ export default function CalibrationWizard() {
   // reappears automatically each time, acting as the "next capture in
   // 3, 2, 1" cue without any extra text needed.
   const runCaptureLoop = async (kind: 'intrinsics' | 'extrinsics', forCamera: string) => {
+    // A single failed shot used to end the whole run, forcing a re-click for
+    // every capture. Tolerate a few consecutive failures instead, so a
+    // transient hiccup just costs one cycle rather than the session.
+    const MAX_CONSECUTIVE_FAILURES = 3
+    let consecutiveFailures = 0
     while (autoCapturingRef.current) {
       for (let s = countdownS; s > 0 && autoCapturingRef.current; s--) {
         setCounting(s)
@@ -228,7 +242,13 @@ export default function CalibrationWizard() {
       setCounting(0)
       const updated = await capture(kind, forCamera)
       setCounting(null)
-      if (!updated) break
+      if (!updated) {
+        consecutiveFailures++
+        if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) break
+        await sleep(1500)
+        continue
+      }
+      consecutiveFailures = 0
       setCapturesThisRun((n) => n + 1)
       if (countStageShots(updated, kind, forCamera) >= SHOT_TARGET[kind]) {
         setTargetReached(true)
@@ -332,7 +352,7 @@ export default function CalibrationWizard() {
       <h2>Camera calibration</h2>
 
       <div className="panel distance-confirmed">
-        camera distance: <strong>{distance.toFixed(2)} m</strong>{' '}
+        camera distance: <strong>{distance.toFixed(3)} m</strong>{' '}
         <button className="link-btn" onClick={() => setEditingDistance(true)}>
           change
         </button>
@@ -385,10 +405,14 @@ export default function CalibrationWizard() {
             <LivePreview camera={info_.camera} label={info_.camera} />
           )}
           {counting !== null && (
-            <div className="countdown-big">
-              {counting}
+            <div className="countdown-big" data-saving={savingCapture}>
+              {savingCapture ? 'saving…' : counting}
               <div className="countdown-caption">
-                {capturesThisRun === 0 ? 'get ready' : 'next capture in'}
+                {savingCapture
+                  ? 'processing both cameras — this usually takes about 10 seconds'
+                  : capturesThisRun === 0
+                    ? 'get ready'
+                    : 'next capture in'}
               </div>
             </div>
           )}
@@ -418,7 +442,7 @@ export default function CalibrationWizard() {
             ))}
           </select>
           {autoCapturing ? (
-            <button className="countdown-btn" onClick={stopCapturing}>
+            <button className="countdown-btn" onClick={stopCapturing} disabled={savingCapture}>
               stop capturing
             </button>
           ) : (
@@ -447,7 +471,7 @@ export default function CalibrationWizard() {
 
       <div className="panel">
         <h3>Compute calibration</h3>
-        <p className="muted">using camera distance: {distance.toFixed(2)} m</p>
+        <p className="muted">using camera distance: {distance.toFixed(3)} m</p>
         <button onClick={runCompute} disabled={compute?.state === 'running'}>
           {compute?.state === 'running' ? 'computing…' : 'compute calibration'}
         </button>

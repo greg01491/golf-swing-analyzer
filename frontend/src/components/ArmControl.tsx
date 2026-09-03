@@ -1,20 +1,36 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
-import type { CaptureStatus } from '../api'
+import type { CaptureStatus, ClubOption } from '../api'
 
-export default function ArmControl({ onCapture }: { onCapture: () => void }) {
+interface Props {
+  captureReady: boolean
+  onCapture: (sessionId: string) => void
+}
+
+export default function ArmControl({ captureReady, onCapture }: Props) {
   const [status, setStatus] = useState<CaptureStatus | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [lastSeen, setLastSeen] = useState<string | null>(null)
+  const [clubs, setClubs] = useState<ClubOption[]>([])
+  const [club, setClub] = useState('')
+  const statusInitialized = useRef(false)
+
+  useEffect(() => {
+    api.clubs().then(setClubs).catch(() => setClubs([]))
+  }, [])
 
   useEffect(() => {
     const id = setInterval(async () => {
       try {
         const s = await api.captureStatus()
         setStatus(s)
-        if (s.last_session && s.last_session !== lastSeen) {
+        setClub((current) => current || s.selected_club || '')
+        if (!statusInitialized.current) {
+          statusInitialized.current = true
           setLastSeen(s.last_session)
-          onCapture()
+        } else if (s.last_session && s.last_session !== lastSeen) {
+          setLastSeen(s.last_session)
+          onCapture(s.last_session)
         }
       } catch {
         setStatus(null)
@@ -41,14 +57,32 @@ export default function ArmControl({ onCapture }: { onCapture: () => void }) {
       <div className="mic-meter" title={level == null ? 'mic off' : `${level.toFixed(1)} dB`}>
         <div className="mic-fill" style={{ width: `${levelPct}%` }} />
       </div>
+      <select
+        aria-label="Club"
+        value={club}
+        disabled={status?.armed}
+        onChange={async (e) => {
+          const selected = e.target.value
+          setClub(selected)
+          if (selected) await call(() => api.selectClub(selected))()
+        }}
+      >
+        <option value="">select club…</option>
+        {clubs.map((option) => (
+          <option key={option.id} value={option.id}>
+            {option.label}
+          </option>
+        ))}
+      </select>
       {status?.armed ? (
         <button className="armed" onClick={call(api.disarm)}>
           ● armed — disarm
         </button>
       ) : (
-        <button onClick={call(api.arm)}>arm listening</button>
+        <button disabled={!club || !captureReady} onClick={call(api.arm)}>arm listening</button>
       )}
-      <button onClick={call(api.trigger)}>manual capture</button>
+      <button disabled={!club || !captureReady} onClick={call(api.trigger)}>manual capture</button>
+      {!captureReady && <span className="setup-required">setup required</span>}
       {status?.mic_error && <span className="error">mic: {status.mic_error}</span>}
       {status &&
         Object.entries(status.camera_health)

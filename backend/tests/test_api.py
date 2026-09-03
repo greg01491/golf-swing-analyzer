@@ -36,10 +36,12 @@ class FakeProcessor:
 
     def __init__(self):
         self.calls = []
+        self.finalizer = None
 
     def __call__(self, session_dir, config):
         self.calls.append(session_dir.name)
         (session_dir / "metrics.json").write_text(json.dumps({"metrics": [], "tips": []}))
+        return self.finalizer
 
 
 @pytest.fixture
@@ -85,6 +87,32 @@ def _fake_session(config, session_id="20260101T000000Z-test0001", with_metrics=T
 
 def test_sessions_empty(client):
     assert client.get("/api/sessions").json() == []
+
+
+def test_startup_endpoints_expose_backend_and_setup_readiness(client):
+    assert client.get("/api/health").json() == {"ready": True}
+    startup = client.get("/api/startup").json()
+    assert set(startup) == {
+        "ready",
+        "pose_ready",
+        "models_ready",
+        "calibration_ready",
+        "audio_ready",
+        "audio_device",
+        "messages",
+    }
+    assert startup["calibration_ready"] is False
+    assert any("Calibrate" in message for message in startup["messages"])
+
+
+def test_club_must_be_selected_and_is_exposed_in_capture_status(client):
+    assert client.post("/api/capture/trigger").status_code == 500
+    clubs = client.get("/api/clubs").json()
+    assert {"id": "driver", "label": "Driver"} in clubs
+
+    response = client.put("/api/capture/club", json={"club": "7_iron"})
+    assert response.json() == {"club": "7_iron"}
+    assert client.get("/api/capture/status").json()["selected_club"] == "7_iron"
 
 
 def test_sessions_listing_and_detail(client, config):
@@ -284,6 +312,46 @@ def test_config_roundtrip_and_validation(client, tmp_path):
     assert client.put("/api/config", json=invalid).status_code == 422
 
 
+def test_config_save_preserves_launcher_storage_overrides(config, processor, tmp_path, monkeypatch):
+    # The desktop launcher points storage at a writable per-user directory via
+    # env vars, but config.yaml keeps the relative defaults. A settings save
+    # used to hand the runtime the file's values back, silently repointing
+    # captures inside the read-only install dir -- every later capture then
+    # died with PermissionError until the app was relaunched.
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.safe_dump(json.loads(config.model_dump_json())))
+    test_client, runtime = _make_client(config, config_path, processor)
+
+    user_data = tmp_path / "userdata"
+    user_calib = tmp_path / "usercalib"
+    monkeypatch.setenv("GOLF_SIM_DATA_DIR", str(user_data))
+    monkeypatch.setenv("GOLF_SIM_CALIBRATION_DIR", str(user_calib))
+
+    with test_client as client:
+        current = client.get("/api/config").json()
+        current["storage"]["data_dir"] = "data"  # the relative default on disk
+        current["storage"]["db_file"] = "data/sessions.db"
+        current["calibration"]["dir"] = "config/calibration"
+        assert client.put("/api/config", json=current).status_code == 200
+
+    assert runtime.config.storage.data_dir == str(user_data)
+    assert runtime.config.storage.db_file == str(user_data / "sessions.db")
+    assert runtime.config.calibration.dir == str(user_calib)
+    runtime.stop()
+
+
+def test_relative_state_paths_never_resolve_into_a_frozen_install(monkeypatch, tmp_path):
+    from golf_sim.config import resolve_state_path
+
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    monkeypatch.setattr("golf_sim.config.sys.frozen", True, raising=False)
+    resolved = resolve_state_path("data")
+    assert resolved == tmp_path / "golf-swing-analyzer" / "data"
+
+    absolute = tmp_path / "explicit"
+    assert resolve_state_path(absolute) == absolute
+
+
 def _wait_for_capture(client, timeout_s=5.0):
     import time
 
@@ -309,6 +377,7 @@ def _wait_for_processing(client, session_id, timeout_s=5.0):
 
 
 def test_auto_process_runs_pipeline_after_capture(client, processor):
+    client.put("/api/capture/club", json={"club": "7_iron"})
     client.post("/api/capture/trigger")
     status = _wait_for_capture(client)
     assert status["last_error"] is None
@@ -320,6 +389,27 @@ def test_auto_process_runs_pipeline_after_capture(client, processor):
     assert detail["metrics"] == {"metrics": [], "tips": []}
 
 
+def test_results_are_ready_before_optional_media_finalization(client, config, processor):
+    import threading
+
+    finalizer_started = threading.Event()
+    release_finalizer = threading.Event()
+
+    def finalize():
+        finalizer_started.set()
+        release_finalizer.wait(timeout=5)
+
+    processor.finalizer = finalize
+    session_dir = _fake_session(config, with_metrics=False)
+    session_id = session_dir.name
+
+    client.post(f"/api/sessions/{session_id}/process")
+    assert _wait_for_processing(client, session_id) == "done"
+    assert finalizer_started.wait(timeout=1)
+    assert not release_finalizer.is_set()
+    release_finalizer.set()
+
+
 def test_auto_process_off_leaves_session_unprocessed(tmp_path, config, processor):
     raw = json.loads(config.model_dump_json())
     raw["processing"]["auto_process"] = False
@@ -329,6 +419,7 @@ def test_auto_process_off_leaves_session_unprocessed(tmp_path, config, processor
 
     test_client, runtime = _make_client(off_config, config_path, processor)
     with test_client:
+        test_client.put("/api/capture/club", json={"club": "7_iron"})
         test_client.post("/api/capture/trigger")
         status = _wait_for_capture(test_client)
         session_id = status["last_session"]
@@ -475,9 +566,24 @@ def test_preview_requires_running_capture(client):
     assert response.headers["content-type"] == "image/jpeg"
 
 
+def test_calibration_preview_starts_cameras_without_arming_microphone(client):
+    assert client.post("/api/capture/preview/start").json() == {"running": True}
+    status = client.get("/api/capture/status").json()
+    assert status["running"] is True
+    assert status["armed"] is False
+
+    import time
+
+    time.sleep(0.4)
+    assert client.get("/api/capture/preview/camera_1").status_code == 200
+    assert client.post("/api/calibration/preview/stop").json() == {"running": False}
+    assert client.get("/api/capture/status").json()["running"] is False
+
+
 def test_capture_arm_disarm_and_manual_trigger(client):
     status = client.get("/api/capture/status").json()
     assert status["running"] is False and status["armed"] is False
+    client.put("/api/capture/club", json={"club": "7_iron"})
 
     assert client.post("/api/capture/arm").json() == {"armed": True}
     assert client.get("/api/capture/status").json()["armed"] is True
@@ -499,3 +605,61 @@ def test_capture_arm_disarm_and_manual_trigger(client):
 
     sessions = client.get("/api/sessions").json()
     assert any(s["id"] == status["last_session"] for s in sessions)
+    detail = client.get(f"/api/sessions/{status['last_session']}").json()
+    assert detail["metadata"]["club"] == "7_iron"
+
+
+def test_arming_works_after_the_calibration_wizard_started_the_cameras(
+    tmp_path, config, processor
+):
+    """Regression: the calibration wizard starts the cameras only, but
+    `running` means "cameras up", so arm() skipped start() and left the mic
+    uncreated. That surfaced as a message-less 'failed to arm: '."""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.safe_dump(json.loads(config.model_dump_json())))
+    test_client, runtime = _make_client(config, config_path, processor)
+    with test_client as client:
+        runtime.start_cameras()  # what the calibration wizard does
+        assert runtime.running and runtime._audio is None
+
+        response = client.post("/api/capture/arm")
+
+        assert response.status_code == 200, response.text
+        assert client.get("/api/capture/status").json()["armed"] is True
+    runtime.stop()
+
+
+def test_manual_capture_works_after_the_calibration_wizard(tmp_path, config, processor):
+    """Same camera-only `running` trap on the manual capture path."""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.safe_dump(json.loads(config.model_dump_json())))
+    test_client, runtime = _make_client(config, config_path, processor)
+    with test_client as client:
+        runtime.start_cameras()
+        client.put("/api/capture/club", json={"club": "7_iron"})
+
+        response = client.post("/api/capture/trigger")
+
+        assert response.status_code == 200, response.text
+    runtime.stop()
+
+
+def test_failures_without_a_message_still_explain_themselves(tmp_path, config, processor):
+    """An AssertionError stringifies to '', which reached the UI as a bare
+    'failed to arm: '. Any failure must name something."""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.safe_dump(json.loads(config.model_dump_json())))
+    test_client, runtime = _make_client(config, config_path, processor)
+
+    def boom():
+        raise AssertionError
+
+    with test_client as client:
+        runtime.arm = boom
+        response = client.post("/api/capture/arm")
+
+        assert response.status_code == 500
+        detail = response.json()["detail"]
+        assert detail.rstrip().rstrip(":") != "failed to arm"
+        assert "AssertionError" in detail
+    runtime.stop()

@@ -64,8 +64,39 @@ def _install_base_config(project_dir: Path) -> None:
         # without the heavy ML stack.
         return
 
-    packaged_default = Path(Pose2Sim.__file__).parent / "Demo_SinglePerson" / "Config.toml"
+    root = Path(Pose2Sim.__file__).parent
+    packaged_default = _find_packaged_config(root)
+    if packaged_default is None:
+        raise FileNotFoundError(
+            "Pose2Sim's base Config.toml is missing from the installation at "
+            f"{root}. A packaged build must bundle Pose2Sim's Demo_*/Config.toml "
+            "files -- check the Demo_ filter in golf_sim_backend.spec."
+        )
     shutil.copy2(packaged_default, target)
+
+
+#: Preferred base configs, best first. Any Demo_*/Config.toml works as a base
+#: (we override the parts we care about with dicts); the single-person demo is
+#: simply the closest match to our two-camera, one-golfer rig.
+_BASE_CONFIG_CANDIDATES = (
+    Path("Demo_SinglePerson") / "Config.toml",
+    Path("Demo_MultiPerson") / "Config.toml",
+    Path("Demo_Batch") / "Config.toml",
+)
+
+
+def _find_packaged_config(root: Path) -> Path | None:
+    for relative in _BASE_CONFIG_CANDIDATES:
+        candidate = root / relative
+        if candidate.is_file():
+            return candidate
+    # Fall back to any Config.toml the install happens to ship, so a Pose2Sim
+    # release that renames its demo folders degrades to a clear failure later
+    # rather than an unexplained crash here.
+    for candidate in sorted(root.glob("**/Config.toml")):
+        if candidate.is_file():
+            return candidate
+    return None
 
 
 def pose_output_dir(project_dir: Path) -> Path:

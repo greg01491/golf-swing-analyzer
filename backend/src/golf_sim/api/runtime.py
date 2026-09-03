@@ -17,7 +17,7 @@ from golf_sim.audio.source import AudioSource, SounddeviceMicSource
 from golf_sim.audio.trigger import TriggerDetector
 from golf_sim.capture.service import CaptureService
 from golf_sim.capture.source import CameraSource
-from golf_sim.config import Config
+from golf_sim.config import Club, Config
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +37,7 @@ class CaptureRuntime:
         self._lock = threading.Lock()
         self.last_session_dir: Path | None = None
         self.last_error: str | None = None
+        self.selected_club: Club | None = None
         # Called with the session dir after every successful capture; the API
         # server wires this to auto-processing when processing.auto_process
         # is enabled. Must not raise.
@@ -77,7 +78,7 @@ class CaptureRuntime:
         trigger but never dispatches auto-processing (the caller marks the
         session as a calibration shot instead)."""
         if not self.running:
-            self.start()
+            self.start_cameras()
         assert self._capture is not None
         import time as _time
 
@@ -85,26 +86,47 @@ class CaptureRuntime:
 
     def _on_trigger(self, trigger_time: float) -> None:
         assert self._capture is not None
+        club = self.selected_club
+        if club is None:
+            self.last_error = "select a club before capturing"
+            return
         try:
-            self.last_session_dir = self._capture.capture_now(trigger_time)
-            logger.info("captured session %s", self.last_session_dir)
+            session_dir = self._capture.capture_now(trigger_time, club=club)
+            logger.info("captured session %s", session_dir)
         except Exception as exc:  # capture failure must not kill the listener (NFR5)
             self.last_error = str(exc)
             logger.exception("capture failed")
             return
         if self.on_session is not None:
             try:
-                self.on_session(self.last_session_dir)
+                self.on_session(session_dir)
             except Exception:  # processing kickoff failure must not kill the listener
                 logger.exception("on_session hook failed")
+        # Publish only after the processing hook has marked the session as
+        # running. Otherwise the UI can discover it in this narrow window,
+        # observe an idle status, and never poll for the completed results.
+        self.last_session_dir = session_dir
 
-    def start(self) -> None:
+    def start_cameras(self) -> None:
         with self._lock:
             if self.running:
                 return
             self.last_error = None
             capture = CaptureService(self.config, sources=self._camera_sources)
             capture.start()
+            self._capture = capture
+
+    def start(self) -> None:
+        with self._lock:
+            capture_created = False
+            if self._capture is None:
+                self.last_error = None
+                capture = CaptureService(self.config, sources=self._camera_sources)
+                capture.start()
+                self._capture = capture
+                capture_created = True
+            if self._audio is not None:
+                return
             audio_source = self._audio_source or SounddeviceMicSource(
                 device=self.config.audio_trigger.device
             )
@@ -113,8 +135,14 @@ class CaptureRuntime:
                 cooldown_s=self.config.audio_trigger.trigger_cooldown_s,
             )
             audio = AudioTriggerService(audio_source, detector, self._on_trigger)
-            audio.start()
-            self._capture, self._audio = capture, audio
+            try:
+                audio.start()
+            except Exception:
+                if capture_created:
+                    self._capture.stop()
+                    self._capture = None
+                raise
+            self._audio = audio
 
     def stop(self) -> None:
         with self._lock:
@@ -126,8 +154,12 @@ class CaptureRuntime:
                 self._capture = None
 
     def arm(self) -> None:
-        if not self.running:
-            self.start()
+        # `running` only reflects the cameras, so the calibration wizard (which
+        # calls start_cameras()) leaves _capture set with no mic behind it.
+        # Gating on it here skipped start() and left _audio None, surfacing as
+        # a message-less AssertionError ("failed to arm: "). start() is
+        # idempotent per subsystem, so just always call it.
+        self.start()
         assert self._audio is not None
         self._audio.arm()
 
@@ -140,7 +172,14 @@ class CaptureRuntime:
         self.stop()
 
     def manual_trigger(self) -> None:
-        if not self.running:
-            self.start()
+        if self.selected_club is None:
+            raise ValueError("select a club before capturing")
+        # Same camera-only `running` trap as arm(): after the calibration
+        # wizard the mic has never been created.
+        self.start()
         assert self._audio is not None
         self._audio.manual_trigger()
+
+    def select_club(self, club: Club) -> None:
+        self.selected_club = club
+        self.last_error = None

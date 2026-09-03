@@ -5,13 +5,20 @@ import { METRIC_INFO, VIEW_LABELS, formatMetricName, type MetricView } from '../
 import PPositionPanel from './PPositionPanel'
 import Skeleton3D from './Skeleton3D'
 
-export default function SessionView({
-  sessionId,
-  onChanged,
-}: {
+interface Props {
   sessionId: string
   onChanged?: () => void
-}) {
+  focusedMetric: string | null
+  onFocusMetric: (metric: string | null) => void
+}
+
+const cameraLabel = (camera: string) => {
+  if (camera === 'camera_1') return 'Down-the-line view'
+  if (camera === 'camera_2') return 'Face-on view'
+  return camera.replaceAll('_', ' ')
+}
+
+export default function SessionView({ sessionId, onChanged, focusedMetric, onFocusMetric }: Props) {
   const [detail, setDetail] = useState<SessionDetail | null>(null)
   const [landmarks, setLandmarks] = useState<Landmarks | null>(null)
   const [camera, setCamera] = useState<string>('camera_1')
@@ -27,7 +34,12 @@ export default function SessionView({
   const [labelDraft, setLabelDraft] = useState('')
   const [groupDraft, setGroupDraft] = useState('My Swings')
   const [savingMeta, setSavingMeta] = useState(false)
-  const videoRef = useRef<HTMLVideoElement>(null)
+  const [proMode, setProMode] = useState(() => localStorage.getItem('pro-mode') === 'on')
+  const videoRefs = useRef<Record<string, HTMLVideoElement | null>>({})
+
+  useEffect(() => {
+    localStorage.setItem('pro-mode', proMode ? 'on' : 'off')
+  }, [proMode])
 
   useEffect(() => {
     setDetail(null)
@@ -53,9 +65,11 @@ export default function SessionView({
 
   const selectPosition = (position: PPosition) => {
     setSelectedPosition(position)
-    if (videoRef.current) {
-      videoRef.current.pause()
-      videoRef.current.currentTime = position.time_s
+    for (const video of Object.values(videoRefs.current)) {
+      if (video) {
+        video.pause()
+        video.currentTime = position.time_s
+      }
     }
   }
 
@@ -63,16 +77,20 @@ export default function SessionView({
   useEffect(() => {
     let raf = 0
     const tick = () => {
-      if (videoRef.current) setTime(videoRef.current.currentTime)
+      const video = videoRefs.current[camera] ?? Object.values(videoRefs.current)[0]
+      if (video) setTime(video.currentTime)
       raf = requestAnimationFrame(tick)
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
-  }, [])
+  }, [camera])
 
-  // apply the slow-motion playback rate (100% = normal, 0% = paused)
+  // apply the slow-motion playback rate (100% = normal, 0% = paused) to
+  // every currently mounted video -- in Pro Mode that's both camera views
   useEffect(() => {
-    if (videoRef.current) videoRef.current.playbackRate = speed / 100
+    for (const video of Object.values(videoRefs.current)) {
+      if (video) video.playbackRate = speed / 100
+    }
   }, [speed])
 
   // poll processing status while running
@@ -85,19 +103,48 @@ export default function SessionView({
         api.session(sessionId).then(setDetail)
         api.landmarks(sessionId).then(setLandmarks).catch(() => setLandmarks(null))
       }
-    }, 2000)
+    }, 500)
     return () => clearInterval(id)
   }, [processState, sessionId])
 
   const overlayAvailable = (detail?.overlay_cameras ?? []).includes(camera)
+  const cameraKey = detail?.cameras.join('|') ?? ''
+  const overlayKey = detail?.overlay_cameras?.join('|') ?? ''
   // memoized because videoUrl embeds a cache-buster: this component
   // re-renders every animation frame (video->skeleton time sync), and a
   // fresh URL per render would reset the <video> src continuously, pinning
   // playback at 0:00
-  const videoSrc = useMemo(
-    () => api.videoUrl(sessionId, camera, overlayAvailable && showOverlay),
-    [sessionId, camera, overlayAvailable, showOverlay],
+  const videoSources = useMemo(
+    () =>
+      Object.fromEntries(
+        (detail?.cameras ?? []).map((cam) => [
+          cam,
+          api.videoUrl(
+            sessionId,
+            cam,
+            showOverlay && (detail?.overlay_cameras ?? []).includes(cam),
+          ),
+        ]),
+      ),
+    // cameraKey and overlayKey deliberately represent array contents.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [sessionId, cameraKey, overlayKey, showOverlay],
   )
+  const videoSrc = videoSources[camera]
+
+  const syncProVideos = (action: 'play' | 'pause' | 'seek' | 'rate') => {
+    const primary = videoRefs.current[detail?.cameras[0] ?? '']
+    if (!primary) return
+    for (const [cam, video] of Object.entries(videoRefs.current)) {
+      if (!video || cam === detail?.cameras[0]) continue
+      if (Math.abs(video.currentTime - primary.currentTime) > 0.05) {
+        video.currentTime = primary.currentTime
+      }
+      video.playbackRate = primary.playbackRate
+      if (action === 'play') void video.play().catch(() => undefined)
+      if (action === 'pause') video.pause()
+    }
+  }
 
   const saveMeta = async () => {
     setSavingMeta(true)
@@ -143,17 +190,27 @@ export default function SessionView({
       Math.abs(time - addressTime) < 0.15,
   )
   const createdAt = detail.metadata?.created_at as string | undefined
+  const club = (metrics?.club ?? detail.metadata?.club) as string | undefined
   const when = createdAt ? new Date(createdAt) : null
 
   return (
     <div className="session-view">
-      <h2>
-        {detail.metadata?.label
-          ? (detail.metadata.label as string)
-          : when
-            ? `${when.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' })} at ${when.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`
-            : sessionId}
-      </h2>
+      <div className="session-heading">
+        <h2>
+          {detail.metadata?.label
+            ? (detail.metadata.label as string)
+            : when
+              ? `${when.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' })} at ${when.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`
+              : sessionId}
+        </h2>
+        <button
+          className={proMode ? 'active pro-mode-toggle' : 'pro-mode-toggle'}
+          onClick={() => setProMode((enabled) => !enabled)}
+        >
+          {proMode ? 'Pro Mode on' : 'Pro Mode'}
+        </button>
+      </div>
+      {club && <p className="session-club">{club.replaceAll('_', ' ')}</p>}
 
       <details className="session-meta-editor">
         <summary>rename / move</summary>
@@ -207,97 +264,157 @@ export default function SessionView({
         />
       )}
 
-      <div className="playback-row">
-        <div className="panel video-panel">
-          {detail.cameras.length === 0 ? (
-            <p className="muted">
-              Videos removed to save space. Your stats are kept — see the metrics and the stats tab.
-            </p>
-          ) : (
-            <>
-              <div className="camera-tabs">
-                {detail.cameras.map((cam) => (
-                  <button
-                    key={cam}
-                    className={cam === camera ? 'active' : ''}
-                    onClick={() => setCamera(cam)}
-                  >
-                    {cam}
-                  </button>
-                ))}
-              </div>
-              <div className="video-frame">
-                <video
-                  key={videoSrc}
-                  ref={videoRef}
-                  src={videoSrc}
-                  controls
-                  loop
-                  onLoadedMetadata={(e) => {
-                    const target = e.currentTarget
-                    target.playbackRate = speed / 100
-                    setVideoSize({ width: target.videoWidth, height: target.videoHeight })
-                  }}
-                />
-                {showBallMarker && videoSize && ball?.address_xy && (
-                  <div
-                    className="ball-marker"
-                    style={{
-                      left: `${(ball.address_xy[0] / videoSize.width) * 100}%`,
-                      top: `${(ball.address_xy[1] / videoSize.height) * 100}%`,
-                    }}
-                    title={`ball detected at address (${ball.impact_source})`}
-                  />
-                )}
-              </div>
-              <div className="video-controls">
-                {overlayAvailable && (
-                  <label className="overlay-toggle">
-                    <input
-                      type="checkbox"
-                      checked={showOverlay}
-                      onChange={(e) => setShowOverlay(e.target.checked)}
-                    />
-                    show skeleton drawn on the video
-                  </label>
-                )}
-                <label className="speed-control">
-                  slow motion
-                  <input
-                    type="range"
-                    min={0}
-                    max={100}
-                    step={1}
-                    value={speed}
-                    onChange={(e) => setSpeed(Number(e.target.value))}
-                  />
-                  <span className="speed-value">{speed}%</span>
-                </label>
-                <button
-                  type="button"
-                  className="collapse-toggle"
-                  onClick={() => setShow3D((v) => !v)}
-                  aria-expanded={show3D}
-                >
-                  {show3D ? 'hide 3D skeleton' : 'show 3D skeleton'}
-                </button>
-                <button
-                  type="button"
-                  className="delete-videos"
-                  onClick={deleteVideos}
-                  disabled={deleting}
-                >
-                  {deleting ? 'deleting…' : 'delete videos (keep stats)'}
-                </button>
-              </div>
-            </>
-          )}
+      {detail.cameras.length === 0 ? (
+        <div className="panel">
+          <p className="muted">
+            Videos removed to save space. Your stats are kept — see the metrics and the stats tab.
+          </p>
         </div>
-      </div>
+      ) : proMode ? (
+        <>
+          <div className="pro-playback-grid">
+            {detail.cameras.map((cam, index) => (
+              <div className="panel pro-camera" key={cam}>
+                <h3>{cameraLabel(cam)}</h3>
+                <video
+                  ref={(node) => {
+                    videoRefs.current[cam] = node
+                  }}
+                  src={videoSources[cam]}
+                  controls={index === 0}
+                  loop
+                  onPlay={index === 0 ? () => syncProVideos('play') : undefined}
+                  onPause={index === 0 ? () => syncProVideos('pause') : undefined}
+                  onSeeked={index === 0 ? () => syncProVideos('seek') : undefined}
+                  onRateChange={index === 0 ? () => syncProVideos('rate') : undefined}
+                  onTimeUpdate={index === 0 ? () => syncProVideos('seek') : undefined}
+                />
+                {index > 0 && <span className="muted sync-label">synced to left view</span>}
+              </div>
+            ))}
+          </div>
+          <div className="video-controls">
+            {(detail.overlay_cameras?.length ?? 0) > 0 && (
+              <label className="overlay-toggle">
+                <input
+                  type="checkbox"
+                  checked={showOverlay}
+                  onChange={(e) => setShowOverlay(e.target.checked)}
+                />
+                show skeleton drawn on the video
+              </label>
+            )}
+            <label className="speed-control">
+              slow motion
+              <input
+                type="range"
+                min={0}
+                max={100}
+                step={1}
+                value={speed}
+                onChange={(e) => setSpeed(Number(e.target.value))}
+              />
+              <span className="speed-value">{speed}%</span>
+            </label>
+          </div>
+        </>
+      ) : (
+        <div className="playback-row">
+          <div className="panel video-panel">
+            <div className="camera-tabs">
+              {detail.cameras.map((cam) => (
+                <button
+                  key={cam}
+                  className={cam === camera ? 'active' : ''}
+                  onClick={() => setCamera(cam)}
+                >
+                  {cameraLabel(cam)}
+                </button>
+              ))}
+            </div>
+            <div className="video-frame">
+              <video
+                key={videoSrc}
+                ref={(node) => {
+                  videoRefs.current[camera] = node
+                }}
+                src={videoSrc}
+                controls
+                loop
+                onLoadedMetadata={(e) => {
+                  const target = e.currentTarget
+                  target.playbackRate = speed / 100
+                  setVideoSize({ width: target.videoWidth, height: target.videoHeight })
+                }}
+              />
+              {showBallMarker && videoSize && ball?.address_xy && (
+                <div
+                  className="ball-marker"
+                  style={{
+                    left: `${(ball.address_xy[0] / videoSize.width) * 100}%`,
+                    top: `${(ball.address_xy[1] / videoSize.height) * 100}%`,
+                  }}
+                  title={`ball detected at address (${ball.impact_source})`}
+                />
+              )}
+            </div>
+            <div className="video-controls">
+              {overlayAvailable && (
+                <label className="overlay-toggle">
+                  <input
+                    type="checkbox"
+                    checked={showOverlay}
+                    onChange={(e) => setShowOverlay(e.target.checked)}
+                  />
+                  show skeleton drawn on the video
+                </label>
+              )}
+              <label className="speed-control">
+                slow motion
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={1}
+                  value={speed}
+                  onChange={(e) => setSpeed(Number(e.target.value))}
+                />
+                <span className="speed-value">{speed}%</span>
+              </label>
+              <button
+                type="button"
+                className="collapse-toggle"
+                onClick={() => setShow3D((v) => !v)}
+                aria-expanded={show3D}
+              >
+                {show3D ? 'hide 3D skeleton' : 'show 3D skeleton'}
+              </button>
+              <button
+                type="button"
+                className="delete-videos"
+                onClick={deleteVideos}
+                disabled={deleting}
+              >
+                {deleting ? 'deleting…' : 'delete videos (keep stats)'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {metrics && (
         <div className="panel metrics-panel">
-          <h3>metrics</h3>
+          <div className="metrics-heading">
+            <h3>metrics</h3>
+            {focusedMetric && (
+              <button className="link-btn" onClick={() => onFocusMetric(null)}>
+                clear voice focus
+              </button>
+            )}
+          </div>
+          <p className="muted metric-instruction">
+            Click a metric to make every spoken result focus on it.
+          </p>
           {(['down-the-line', 'front-on'] as MetricView[]).map((view) => {
             const rows = metrics.metrics.filter(
               (m) => (METRIC_INFO[m.name]?.view ?? 'down-the-line') === view,
@@ -311,9 +428,22 @@ export default function SessionView({
                     {rows.map((m) => {
                       const info = METRIC_INFO[m.name]
                       return (
-                        <tr key={m.name} className={m.in_range === false ? 'flagged' : ''}>
+                        <tr
+                          key={m.name}
+                          className={[
+                            m.in_range === false ? 'flagged' : '',
+                            focusedMetric === m.name ? 'voice-focused' : '',
+                          ].join(' ')}
+                        >
                           <td>
-                            <span className="metric-name">{formatMetricName(m.name)}</span>
+                            <button
+                              className="metric-focus"
+                              aria-pressed={focusedMetric === m.name}
+                              onClick={() => onFocusMetric(m.name)}
+                            >
+                              <span className="metric-name">{formatMetricName(m.name)}</span>
+                              {focusedMetric === m.name && <span>voice focus</span>}
+                            </button>
                             {info && (
                               <span className="help-icon" tabIndex={0} aria-label={info.label}>
                                 i

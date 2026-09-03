@@ -7,6 +7,31 @@
   --muted: #8b98a5;
   --accent: #4ade80;
   --error: #f87171;
+  --deep-bg: #0a0e12;
+  --success-bg: #14532d;
+  --danger-bg: #450a0a;
+  --warning-bg: #3a2a08;
+  --warning-border: #b45309;
+  --warning-text: #fbbf24;
+  --focus-bg: rgba(74, 222, 128, 0.1);
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --bg: #f4f7f5;
+  --panel: #ffffff;
+  --border: #c7d2cc;
+  --text: #17201c;
+  --muted: #596b63;
+  --accent: #15803d;
+  --error: #b91c1c;
+  --deep-bg: #e5ebe8;
+  --success-bg: #dcfce7;
+  --danger-bg: #fee2e2;
+  --warning-bg: #fffbeb;
+  --warning-border: #d97706;
+  --warning-text: #92400e;
+  --focus-bg: rgba(21, 128, 61, 0.12);
 }
 
 * {
@@ -17,10 +42,16 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: system-ui, sans-serif;
+  font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
+  font-size: 14px;
+  line-height: 1.45;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
 }
 
 .app {
+  flex: 1;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
@@ -29,15 +60,26 @@ body {
 header {
   display: flex;
   align-items: center;
-  gap: 16px;
+  flex-wrap: wrap;
+  gap: 10px 12px;
   padding: 10px 16px;
   border-bottom: 1px solid var(--border);
+  background: var(--panel);
 }
 
 header h1 {
-  font-size: 18px;
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
   margin: 0;
   margin-right: auto;
+  white-space: nowrap;
+}
+
+.view-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 button {
@@ -54,13 +96,44 @@ button:hover {
   border-color: var(--accent);
 }
 
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.arm-control select {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+.session-club {
+  color: var(--accent);
+  text-transform: capitalize;
+  margin-top: -8px;
+}
+
+.voice-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.theme-toggle {
+  white-space: nowrap;
+}
+
 button.active {
   border-color: var(--accent);
   color: var(--accent);
 }
 
 button.armed {
-  background: #14532d;
+  background: var(--success-bg);
   border-color: var(--accent);
   color: var(--accent);
 }
@@ -318,6 +391,42 @@ main {
   background: rgba(255, 255, 255, 0.06);
 }
 
+.session-heading,
+.metrics-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.session-heading h2,
+.metrics-heading h3 {
+  margin-top: 0;
+}
+
+.pro-mode-toggle {
+  white-space: nowrap;
+}
+
+.pro-playback-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.pro-camera video {
+  display: block;
+  width: 100%;
+  max-height: 68vh;
+  object-fit: contain;
+}
+
+.sync-label {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+}
+
 .camera-tabs {
   display: flex;
   gap: 6px;
@@ -482,6 +591,39 @@ tr.flagged td {
   color: var(--error);
 }
 
+tr.voice-focused td {
+  background: var(--focus-bg);
+}
+
+.metric-instruction {
+  margin-top: -6px;
+  font-size: 12px;
+}
+
+.metric-focus {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 3px 6px;
+  border-color: transparent;
+  background: transparent;
+  text-align: left;
+}
+
+.metric-focus span {
+  color: var(--accent);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+  .pro-playback-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 ol {
   padding-left: 20px;
 }
@@ -501,16 +643,36 @@ ol li {
 
 .banner {
   padding: 10px 16px;
-  background: #450a0a;
+  background: var(--danger-bg);
+}
+
+.setup-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  color: var(--warning-text);
+  background: var(--warning-bg);
+  border-bottom: 1px solid var(--warning-border);
+}
+
+.setup-banner span {
+  flex: 1;
+}
+
+.setup-required {
+  color: var(--warning-text);
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .quality-warning {
-  border: 1px solid #b45309;
-  background: #3a2a08;
+  border: 1px solid var(--warning-border);
+  background: var(--warning-bg);
 }
 
 .quality-warning strong {
-  color: #fbbf24;
+  color: var(--warning-text);
 }
 
 .quality-warning ul {
@@ -520,13 +682,14 @@ ol li {
 .arm-control {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
 }
 
 .mic-meter {
   width: 120px;
   height: 10px;
-  background: #0a0e12;
+  background: var(--deep-bg);
   border: 1px solid var(--border);
   border-radius: 5px;
   overflow: hidden;
@@ -538,11 +701,8 @@ ol li {
   transition: width 0.15s;
 }
 
-.settings {
-  max-width: 640px;
-  padding: 16px;
-}
-
+/* Generic label+input row, shared by the calibration wizard. Settings
+   overrides this with its own denser, divided variant. */
 .field {
   display: flex;
   justify-content: space-between;
@@ -557,40 +717,255 @@ ol li {
   background: var(--bg);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 4px 8px;
-}
-
-.camera-config {
-  border-top: 1px solid var(--border);
-  padding-top: 8px;
-  margin-top: 8px;
-}
-
-.range-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 6px;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-family: inherit;
   font-size: 14px;
 }
 
-.range-row span {
-  flex: 1;
+.field input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--focus-bg);
 }
 
-.range-row .field input {
-  width: 80px;
+/* ---- settings ---- */
+
+.settings {
+  max-width: 860px;
+  margin: 0 auto;
+  padding-bottom: 24px;
 }
 
-.view-nav {
+.settings-header {
+  margin-bottom: 18px;
+}
+
+.settings-header h2 {
+  margin: 0 0 4px;
+  font-size: 20px;
+}
+
+.settings-intro {
+  margin: 0;
+  max-width: 64ch;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.settings-section {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px 18px;
+  margin-bottom: 14px;
+}
+
+.settings-section > h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.section-hint {
+  margin: 6px 0 0;
+  max-width: 70ch;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.field-list {
+  margin-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.settings .field {
   display: flex;
-  gap: 6px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin: 0;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+}
+
+.settings .field:last-child {
+  border-bottom: none;
+}
+
+.field-text {
+  min-width: 0;
+}
+
+.field-label {
+  display: block;
+  font-weight: 500;
+}
+
+.field-hint {
+  display: block;
+  margin-top: 2px;
+  max-width: 58ch;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.field-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.field-unit {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.settings input[type='number'],
+.settings select {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 14px;
+  font-family: inherit;
+}
+
+.settings input[type='number'] {
+  width: 108px;
+  text-align: right;
+}
+
+.settings input[type='number']:focus,
+.settings select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--focus-bg);
+}
+
+.settings input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.camera-config {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-top: 12px;
+}
+
+.camera-config-name {
+  font-size: 13px;
+  font-weight: 650;
+  text-transform: capitalize;
+}
+
+/* The camera numeric inputs are short, so a single column wasted the row and
+   pushed the panel taller than the viewport. */
+.camera-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 0 24px;
+  margin-top: 4px;
+}
+
+.camera-fields .field {
+  gap: 12px;
+}
+
+.range-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 16px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+}
+
+.range-row:last-child {
+  border-bottom: none;
+}
+
+.range-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  text-transform: capitalize;
+}
+
+.range-row .field {
+  gap: 8px;
+  padding: 0;
+  border-bottom: none;
+}
+
+.range-row input[type='number'] {
+  width: 88px;
+}
+
+.settings-actions {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 18px;
+  padding: 12px 0;
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+}
+
+.settings-actions .save-btn {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg);
+  font-weight: 650;
+  padding: 8px 20px;
+}
+
+.settings-actions .save-btn:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.save-message {
+  margin: 0;
+  font-size: 13px;
+}
+
+@media (max-width: 720px) {
+  .settings .field {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .range-row {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+}
+
+/* Settings, the calibration wizard and system check render outside <main>,
+   so they need their own scroll region -- otherwise long pages ran past the
+   bottom of the window with nothing to scroll and no side padding. */
+.view-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px;
 }
 
 .wizard {
   max-width: 760px;
-  padding: 16px;
+  margin: 0 auto;
 }
 
 .calib-status {
@@ -602,7 +977,7 @@ ol li {
 }
 
 .calib-status.stale {
-  border-left-color: #fbbf24;
+  border-left-color: var(--warning-text);
 }
 
 .wizard-tabs {
@@ -629,6 +1004,10 @@ ol li {
   width: 100%;
   max-height: 360px;
   object-fit: contain;
+}
+
+.preview-box img.preview-retrying {
+  display: none;
 }
 
 .preview-label {
@@ -684,10 +1063,20 @@ ol li {
   z-index: 2;
 }
 
+.countdown-big[data-saving="true"] {
+  font-size: 20px;
+  gap: 12px;
+  background: rgba(0, 0, 0, 0.8);
+}
+
 .countdown-caption {
   font-size: clamp(16px, 3vw, 28px);
   font-weight: 600;
   opacity: 0.85;
+}
+
+.countdown-big[data-saving="true"] .countdown-caption {
+  font-size: 14px;
 }
 
 .countdown-big.captured-flash {
@@ -830,12 +1219,12 @@ ol li {
 }
 
 .status-badge.ok {
-  background: #14532d;
+  background: var(--success-bg);
   color: var(--accent);
 }
 
 .status-badge.fail {
-  background: #450a0a;
+  background: var(--danger-bg);
   color: var(--error);
 }
 
@@ -843,7 +1232,7 @@ ol li {
   margin: 8px 0 0;
   padding-left: 20px;
   font-size: 13px;
-  color: #fbbf24;
+  color: var(--warning-text);
   line-height: 1.5;
 }
 

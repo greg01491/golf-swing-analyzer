@@ -2,6 +2,12 @@
   "name": "golf-swing-analyzer",
   "private": true,
   "version": "0.1.0",
+  "description": "Desktop golf swing capture and 3D pose analysis",
+  "author": "Greg Brown",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/greg01491/golf-swing-analyzer.git"
+  },
   "type": "module",
   "main": "electron/main.js",
   "build": {
@@ -10,6 +16,20 @@
     "files": [
       "dist/**",
       "electron/**"
+    ],
+    "extraResources": [
+      {
+        "from": "../backend/dist/golf-sim-backend",
+        "to": "backend"
+      },
+      {
+        "from": "../config/config.yaml",
+        "to": "defaults/config.yaml"
+      },
+      {
+        "from": "../backend/runtime-models",
+        "to": "models/rtmlib"
+      }
     ],
     "directories": {
       "output": "release"
@@ -20,16 +40,21 @@
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Golf Swing Analyzer"
     }
   },
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "backend:build": "cd ../backend && python prepare_models.py && python -m PyInstaller --noconfirm golf_sim_backend.spec",
     "lint": "oxlint",
     "preview": "vite preview",
     "electron:dev": "concurrently -k -n VITE,ELECTRON -c blue,green \"vite\" \"wait-on tcp:5173 && electron .\"",
-    "electron:build": "tsc -b && vite build && electron-builder"
+    "electron:build": "npm run build && npm run backend:build && electron-builder --publish never"
   },
   "dependencies": {
     "@types/three": "^0.185.1",

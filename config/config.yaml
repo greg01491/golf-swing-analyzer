@@ -9,7 +9,10 @@ audio_trigger:
   # specific device index). Run `python -m golf_sim.audio.cli devices` to
   # list candidates and set an explicit index -- WASAPI-backed entries are
   # the most reliable bet on Windows.
-  device: 11  # Microphone Array (AMD Audio Device), WASAPI 48kHz -- indices shuffle across reboots; re-check with `python -m golf_sim.audio.cli devices` and pick the WASAPI mic (was 14, now 11 as of 2026-07-20)
+  # Stable host API + device name. If it is unavailable, startup automatically
+  # falls back to the first usable WASAPI input instead of trusting a stale
+  # Windows device index.
+  device: "Windows WASAPI:Microphone Array (AMD Audio Device)"
   # RMS/dB trigger threshold. TBD via calibration helper (Phase 2).
   threshold_db: -20
   # Seconds of footage to keep *before* the trigger in the saved clip.
@@ -78,6 +81,8 @@ calibration:
   - 4
   - 7
   checkerboard_square_size_mm: 28.4  # measured on Greg's print with a ruler
+  # Straight-line distance between the two camera lenses in the current rig.
+  camera_distance_m: 3.115
 
 metrics:
   # Per-metric reference ranges; edit freely. Units in degrees unless noted.
@@ -102,6 +107,49 @@ metrics:
     # Body angles
     knee_flex_deg: {min: 145, max: 172}
     lead_arm_deg: {min: 160, max: 180}
+  # Club length changes address posture and the size of the turn. These
+  # profiles override only club-dependent metrics; tempo, X-factor and sway
+  # continue to use the shared ranges above.
+  club_profiles:
+    driver:
+      shoulder_turn_deg: {min: 85, max: 105}
+      hip_turn_deg: {min: 40, max: 55}
+      spine_tilt_deg: {min: 20, max: 35}
+    fairway_wood:
+      shoulder_turn_deg: {min: 82, max: 102}
+      hip_turn_deg: {min: 38, max: 53}
+      spine_tilt_deg: {min: 22, max: 37}
+    long_iron:
+      shoulder_turn_deg: {min: 80, max: 100}
+      hip_turn_deg: {min: 37, max: 52}
+      spine_tilt_deg: {min: 25, max: 40}
+    mid_iron:
+      shoulder_turn_deg: {min: 78, max: 98}
+      hip_turn_deg: {min: 35, max: 50}
+      spine_tilt_deg: {min: 28, max: 43}
+    short_iron:
+      shoulder_turn_deg: {min: 75, max: 95}
+      hip_turn_deg: {min: 32, max: 48}
+      spine_tilt_deg: {min: 32, max: 47}
+    wedge:
+      shoulder_turn_deg: {min: 70, max: 90}
+      hip_turn_deg: {min: 30, max: 45}
+      spine_tilt_deg: {min: 35, max: 50}
+  club_profile_mapping:
+    driver: driver
+    3_wood: fairway_wood
+    5_wood: fairway_wood
+    3_iron: long_iron
+    4_iron: long_iron
+    5_iron: long_iron
+    6_iron: mid_iron
+    7_iron: mid_iron
+    8_iron: short_iron
+    9_iron: short_iron
+    pitching_wedge: wedge
+    gap_wedge: wedge
+    sand_wedge: wedge
+    lob_wedge: wedge
 
 analysis:
   # Which arm is "lead" (nearer the target). Body-pose tracking alone can't

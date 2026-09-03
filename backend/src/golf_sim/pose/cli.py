@@ -13,7 +13,7 @@ import argparse
 import time
 from pathlib import Path
 
-from golf_sim.config import REPO_ROOT, load_config
+from golf_sim.config import load_config, resolve_state_path
 from golf_sim.pose.calibrate import calibration_status, run_checkerboard_calibration
 from golf_sim.pose.estimate import run_pose_estimation
 from golf_sim.pose.reconstruct import run_reconstruction
@@ -28,7 +28,7 @@ def _latest_session(data_dir: Path) -> Path:
 
 def _resolve_session(args, config) -> Path:
     if args.latest:
-        return _latest_session(REPO_ROOT / config.storage.data_dir)
+        return _latest_session(resolve_state_path(config.storage.data_dir))
     if args.session_dir is not None:
         return args.session_dir
     raise SystemExit("pass a session_dir or --latest")

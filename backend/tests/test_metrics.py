@@ -142,6 +142,21 @@ def test_restricted_turn_is_flagged_out_of_range():
     assert by_name["shoulder_turn_deg"].in_range is False
 
 
+def test_club_profile_overrides_only_club_specific_ranges():
+    config = _config()
+    config.club_profiles["wedge"] = {
+        "spine_tilt_deg": ReferenceRange(min=35, max=50),
+    }
+    config.club_profile_mapping["pitching_wedge"] = "wedge"
+
+    report = compute_metrics(synthetic_swing(), config, club="pitching_wedge")
+    by_name = {m.name: m for m in report.metrics}
+
+    assert by_name["spine_tilt_deg"].range_min == 35
+    assert by_name["spine_tilt_deg"].in_range is False
+    assert by_name["tempo_ratio"].range_min == 2.8
+
+
 def test_report_serializes_to_dict():
     seq = synthetic_swing()
     report = compute_metrics(seq, _config())

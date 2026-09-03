@@ -46,6 +46,7 @@ class SessionWriter:
         camera_meta: dict[str, dict],
         pre_capture_delay_s: float,
         capture_duration_s: float,
+        extra_metadata: dict | None = None,
     ) -> Path:
         # Local time in the folder name (with date/time visually separated)
         # so sessions are human-readable in the UI and file explorer; the
@@ -68,6 +69,7 @@ class SessionWriter:
             "pre_capture_delay_s": pre_capture_delay_s,
             "capture_duration_s": capture_duration_s,
             "cameras": cameras_metadata,
+            **(extra_metadata or {}),
         }
         (session_dir / "metadata.json").write_text(json.dumps(metadata, indent=2))
         return session_dir
