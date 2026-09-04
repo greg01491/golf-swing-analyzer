@@ -1,4 +1,5 @@
-const { app, BrowserWindow, dialog } = require("electron");
+const { app, BrowserWindow, dialog, Menu } = require("electron");
+const { autoUpdater } = require("electron-updater");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const http = require("node:http");
@@ -150,6 +151,80 @@ function stopBackend() {
   rendererLog = null;
 }
 
+// Update checking only makes sense for an installed, packaged build -- under
+// launch.ps1/dev mode there is no GitHub-published release to compare against.
+let updateCheckInFlight = false;
+
+function checkForUpdates() {
+  if (!app.isPackaged) return;
+  if (updateCheckInFlight) return;
+  updateCheckInFlight = true;
+  autoUpdater.checkForUpdates().catch((error) => {
+    updateCheckInFlight = false;
+    writeRendererLog(`update check failed to start: ${error?.stack ?? error}`);
+    dialog.showMessageBox({
+      type: "error",
+      title: "Check for Updates",
+      message: "Could not check for updates.",
+      detail: String(error?.message ?? error),
+    });
+  });
+}
+
+autoUpdater.on("update-not-available", () => {
+  updateCheckInFlight = false;
+  dialog.showMessageBox({
+    type: "info",
+    title: "Check for Updates",
+    message: "You already have the latest version.",
+  });
+});
+
+autoUpdater.on("update-available", () => {
+  // Download proceeds silently in the background; only the outcome (ready to
+  // install, or error) is worth interrupting the golfer for.
+  updateCheckInFlight = false;
+});
+
+autoUpdater.on("update-downloaded", async (info) => {
+  const { response } = await dialog.showMessageBox({
+    type: "info",
+    title: "Update Ready",
+    message: `Golf Swing Analyzer ${info.version} has been downloaded.`,
+    detail: "Restart now to install it, or install it later on next launch.",
+    buttons: ["Restart Now", "Later"],
+    defaultId: 0,
+    cancelId: 1,
+  });
+  if (response === 0) autoUpdater.quitAndInstall();
+});
+
+autoUpdater.on("error", (error) => {
+  updateCheckInFlight = false;
+  writeRendererLog(`autoUpdater error: ${error?.stack ?? error}`);
+  dialog.showMessageBox({
+    type: "error",
+    title: "Check for Updates",
+    message: "The update check failed.",
+    detail: String(error?.message ?? error),
+  });
+});
+
+function buildApplicationMenu() {
+  Menu.setApplicationMenu(
+    Menu.buildFromTemplate([
+      {
+        label: "File",
+        submenu: [
+          { label: "Check for Updates", click: checkForUpdates },
+          { type: "separator" },
+          { role: "quit", label: "Exit" },
+        ],
+      },
+    ]),
+  );
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -211,6 +286,7 @@ app.whenReady().then(async () => {
     return;
   }
 
+  buildApplicationMenu();
   createWindow();
   app.on("activate", () => {
     if (!mainWindow) createWindow();
