@@ -1,7 +1,7 @@
 {
   "name": "golf-swing-analyzer",
   "private": true,
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Desktop golf swing capture and 3D pose analysis",
   "author": "Greg Brown",
   "repository": {
@@ -13,6 +13,7 @@
   "build": {
     "appId": "com.gregbrown.golfswinganalyzer",
     "productName": "Golf Swing Analyzer",
+    "artifactName": "Golf-Swing-Analyzer-Setup-${version}.${ext}",
     "files": [
       "dist/**",
       "electron/**"

@@ -8,6 +8,14 @@
 - [x] 1.3 Update `.github/workflows/release.yml` to upload `frontend/release/*.blockmap`
       and `frontend/release/latest.yml` alongside the existing `*.exe` glob; verify by
       inspecting the `files:` list in the workflow diff
+- [x] 1.4 Set an explicit hyphen-only `artifactName` in `package.json`'s `build` config
+      so the built installer filename has no spaces; verify by confirming
+      `latest.yml`'s referenced filename, the actual GitHub release asset name, and the
+      locally built `.exe` name are all identical
+      (found during v0.1.3 testing: GitHub's upload API silently replaces spaces in
+      asset filenames with dots, which didn't match latest.yml's own space-free-by-
+      convention filename, causing "Cannot download ... status 404" during the
+      real update check)
 
 ## 2. Application menu
 
