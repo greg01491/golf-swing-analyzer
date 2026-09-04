@@ -470,6 +470,10 @@ main {
   width: 100%;
   height: 100%;
   touch-action: none;
+  /* the overlay's bounding box covers the whole video, including its native
+     play button/scrubber -- only the drag handles below should catch clicks,
+     everything else must click through to the video controls underneath */
+  pointer-events: none;
 }
 
 .swing-plane-line-handle {
