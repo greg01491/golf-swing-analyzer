@@ -51,11 +51,14 @@ Alternative considered: an in-app banner (matching `App.tsx`'s existing
 satisfy the proposal's scope.
 
 **Minimal custom `Menu` replacing Electron's default, with only File > Check for
-Updates and File > Exit.**
+Updates, File > About, and File > Exit.**
 Electron shows a default menu automatically only when no menu is explicitly set; adding
-`Menu.setApplicationMenu` with just these two items satisfies exactly what was asked
+`Menu.setApplicationMenu` with just these three items satisfies exactly what was asked
 without deciding on placement/behavior for unrelated default items (Reload, DevTools,
-Edit, Window) that nobody requested.
+Edit, Window) that nobody requested. **About** reads `app.getVersion()` (the same
+version electron-builder stamped from `package.json` at build time) and shows it via a
+native `dialog.showMessageBox`, giving a simple, independent way to confirm an update
+actually took effect.
 
 **`build.publish` configured, but `electron:build` keeps `--publish never`.**
 CI already uploads release assets via `softprops/action-gh-release` in `release.yml`,

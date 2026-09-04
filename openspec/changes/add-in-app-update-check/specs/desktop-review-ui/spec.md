@@ -39,3 +39,13 @@ desktop app itself.
 - **WHEN** the app is running under the development launcher (not an installed,
   packaged build)
 - **THEN** no update check is performed
+
+### Requirement: About Dialog
+
+The system SHALL let the golfer see the running app's version number from the File
+menu, so they can confirm whether an update actually applied.
+
+#### Scenario: Viewing the version
+
+- **WHEN** the golfer selects "About" from the File menu
+- **THEN** the app shows the currently running version number

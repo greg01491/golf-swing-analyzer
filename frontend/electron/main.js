@@ -210,6 +210,15 @@ autoUpdater.on("error", (error) => {
   });
 });
 
+function showAbout() {
+  dialog.showMessageBox({
+    type: "info",
+    title: "About Golf Swing Analyzer",
+    message: "Golf Swing Analyzer",
+    detail: `Version ${app.getVersion()}`,
+  });
+}
+
 function buildApplicationMenu() {
   Menu.setApplicationMenu(
     Menu.buildFromTemplate([
@@ -217,6 +226,7 @@ function buildApplicationMenu() {
         label: "File",
         submenu: [
           { label: "Check for Updates", click: checkForUpdates },
+          { label: "About", click: showAbout },
           { type: "separator" },
           { role: "quit", label: "Exit" },
         ],

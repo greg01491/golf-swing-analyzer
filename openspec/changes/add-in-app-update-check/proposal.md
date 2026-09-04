@@ -7,8 +7,10 @@ and let the golfer update on demand.
 
 ## What Changes
 
-- Add a minimal application menu with a **File** menu containing **Check for Updates**
-  and **Exit** (no other default Electron menu items are added at this point).
+- Add a minimal application menu with a **File** menu containing **Check for Updates**,
+  **About**, and **Exit** (no other default Electron menu items are added at this
+  point). **About** shows the running app version so the golfer can confirm an update
+  actually applied.
 - Wire `electron-updater` (GitHub provider) into the Electron main process: checking,
   downloading, and prompting to restart-and-install, all via native dialogs — no new
   renderer/IPC surface.

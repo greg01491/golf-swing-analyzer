@@ -12,9 +12,12 @@
 ## 2. Application menu
 
 - [x] 2.1 Add a minimal `Menu.setApplicationMenu` in `frontend/electron/main.js` with a
-      single **File** menu containing **Check for Updates** and **Exit**; verify by
-      launching the packaged app and confirming the menu shows only these two items
-      under File
+      single **File** menu containing **Check for Updates**, **About**, and **Exit**;
+      verify by launching the packaged app and confirming the menu shows only these
+      three items under File
+- [x] 2.2 Wire **About** to show the running app version (`app.getVersion()`) via a
+      native dialog; verify by opening it and confirming the version matches
+      `package.json`
 
 ## 3. Update check wiring
 
