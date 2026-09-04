@@ -38,6 +38,12 @@
 - [x] 3.3 Handle `update-available`/download progress by proceeding silently in the
       background (no dialog spam per progress tick); verify by triggering a check
       against a newer release and confirming only start/finish produce dialogs
+- [x] 3.6 Show download progress via `BrowserWindow.setProgressBar()` on the
+      `download-progress` event, clearing it on `update-downloaded`/`error`; verify by
+      triggering a real update and confirming the taskbar icon shows progress, then
+      clears
+      (added after testing: with no visible feedback at all, a background download
+      looked indistinguishable from nothing happening)
 - [x] 3.4 Handle `update-downloaded` with a native dialog offering "Restart now" (calls
       `autoUpdater.quitAndInstall()`) or "Later"; verify both button paths manually
 - [x] 3.5 Handle `error` events with a native dialog reporting the failure (e.g. no

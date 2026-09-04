@@ -182,11 +182,18 @@ autoUpdater.on("update-not-available", () => {
 
 autoUpdater.on("update-available", () => {
   // Download proceeds silently in the background; only the outcome (ready to
-  // install, or error) is worth interrupting the golfer for.
+  // install, or error) is worth interrupting the golfer for. The taskbar icon's
+  // progress bar (set from "download-progress" below) is the only visible sign
+  // a download is happening.
   updateCheckInFlight = false;
 });
 
+autoUpdater.on("download-progress", (progress) => {
+  mainWindow?.setProgressBar(progress.percent / 100);
+});
+
 autoUpdater.on("update-downloaded", async (info) => {
+  mainWindow?.setProgressBar(-1);
   const { response } = await dialog.showMessageBox({
     type: "info",
     title: "Update Ready",
@@ -201,6 +208,7 @@ autoUpdater.on("update-downloaded", async (info) => {
 
 autoUpdater.on("error", (error) => {
   updateCheckInFlight = false;
+  mainWindow?.setProgressBar(-1);
   writeRendererLog(`autoUpdater error: ${error?.stack ?? error}`);
   dialog.showMessageBox({
     type: "error",

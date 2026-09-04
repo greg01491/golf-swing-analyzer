@@ -21,6 +21,8 @@ desktop app itself.
 - **WHEN** a newer release is found
 - **THEN** the app downloads and verifies the new installer in the background while
   the golfer keeps using the app
+- **AND** the taskbar icon shows download progress so the golfer can tell a download is
+  happening
 
 #### Scenario: Prompt to install
 

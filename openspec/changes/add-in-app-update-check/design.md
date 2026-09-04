@@ -44,7 +44,10 @@ link.
 `autoUpdater` emits events (`update-available`, `update-downloaded`, `error`, etc.) that
 main.js listens to directly and responds to with `dialog.showMessageBox`, mirroring the
 existing `dialog.showErrorBox` pattern for backend-start failures. This avoids adding
-the app's first IPC bridge for a single on/off feature.
+the app's first IPC bridge for a single on/off feature. Download progress is shown via
+`BrowserWindow.setProgressBar()` (the Windows taskbar icon's built-in progress overlay)
+rather than a dialog or renderer UI — it needed no new surface and answered real user
+confusion during testing ("is it actually downloading?") without dialog spam per tick.
 Alternative considered: an in-app banner (matching `App.tsx`'s existing
 `setup-banner`/backend-down banner styling) — more polished, but requires a new
 `contextBridge` API and renderer state; deferred as a possible follow-up, not needed to
