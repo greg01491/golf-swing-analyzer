@@ -48,7 +48,10 @@
 
 - [x] 4.1 Run `npm run lint` and `npm run build` in `frontend/` and confirm both
       succeed with no new errors
-- [ ] 4.2 Build a fresh installer locally (`npm run electron:build`) and manually verify
+- [x] 4.2 Build a fresh installer locally (`npm run electron:build`) and manually verify
       the full flow end-to-end: launch the packaged app, use File > Check for Updates,
       and confirm each dialog path (up to date / downloaded+restart / error) behaves as
       specified
+      (verified via real releases instead of a local build: v0.1.3 -> v0.1.4 update
+      check found the new version, downloaded it silently in the background, prompted
+      restart, and About correctly showed 0.1.4 after restart)
