@@ -13,34 +13,33 @@
 
 ## 2. Reference line overlay component
 
-- [x] 2.1 Add a `SwingPlaneLine` component that renders an absolutely-positioned SVG
-      `<line>` with two draggable circle-handle endpoints, sized against the same
-      `videoSize` percentage-based positioning already used by the ball marker; verify
-      by rendering it over a static test video and confirming the line follows window
-      resizes
-- [x] 2.2 Wire pointer/drag events on the endpoint handles to update line position state;
-      verify by dragging each endpoint and confirming the line updates live with no lag
-- [x] 2.3 Add a color picker control and a show/hide toggle per camera's line; verify by
-      switching colors and toggling visibility and confirming the SVG updates
-      accordingly
+- [x] 2.1 Extend `SwingPlaneLine` to manage up to five independent line records per
+      camera and render one absolutely-positioned SVG `<line>` with two draggable
+      circle-handle endpoints for each line; verify by rendering five lines and
+      confirming they remain aligned over resize
+- [x] 2.2 Wire pointer/drag events to update the selected line only, and add controls to
+      select, add, and remove lines; verify by editing one of five lines and confirming
+      the other four remain unchanged and a sixth cannot be added
+- [x] 2.3 Add a color picker and show/hide toggle for the selected line; verify by
+      changing one line's color/visibility and confirming the other lines are unaffected
 
 ## 3. Persistence
 
-- [x] 3.1 Persist each camera's line state (`x1, y1, x2, y2, color, visible`) to
-      `localStorage` keyed as `swing-plane-line:<camera>`, following the existing
-      `pro-mode` persistence pattern; verify by setting a line, reloading the app, and
-      confirming it reappears in the same position and color
-- [x] 3.2 Load persisted line state per camera on mount, defaulting to a sensible
-      diagonal placement and hidden state when none is stored; verify by clearing
-      `localStorage` and confirming a fresh session shows no line until the golfer adds
-      one
+- [x] 3.1 Persist each camera's line collection (`lines[]` plus selected line) to
+      `localStorage` keyed as `swing-plane-lines:<camera>`, following the existing
+      `pro-mode` persistence pattern; verify by setting multiple lines, reloading the
+      app, and confirming all reappear in the same positions, colors, and order
+- [x] 3.2 Load persisted line collections per camera on mount, defaulting to an empty
+      collection when none is stored; verify by clearing `localStorage` and confirming
+      a fresh session shows no line until the golfer adds one
 
 ## 4. Integration into SessionView
 
-- [x] 4.1 Render one `SwingPlaneLine` per visible camera view in both Pro Mode's grid and
-      the single-camera view's video frame; verify by checking both layouts show
-      independent, correctly positioned overlays
-- [x] 4.2 Add the add/remove-line and color controls to each camera panel's
+- [x] 4.1 Render up to five `SwingPlaneLine` overlays per visible camera view in both Pro
+      Mode's grid and the single-camera view's video frame; verify by checking both
+      layouts show independent, correctly positioned collections
+- [x] 4.2 Add the add/remove/select-line, color, and visibility controls to each camera
+      panel's
       `video-controls` area, styled consistently with existing overlay/speed controls;
       verify visually against the existing control row styling
       (implemented as a small per-camera toolbar over each video, not the shared

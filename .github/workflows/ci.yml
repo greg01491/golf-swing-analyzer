@@ -85,3 +85,9 @@ jobs:
           } finally {
             Stop-Process -Id $backend.Id -Force -ErrorAction SilentlyContinue
           }
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: golf-swing-analyzer-installer
+          path: frontend/release/*.exe
+          retention-days: 14

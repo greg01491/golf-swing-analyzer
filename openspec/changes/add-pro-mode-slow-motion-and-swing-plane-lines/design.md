@@ -26,7 +26,8 @@ pipeline (analysis explicitly notes "no club tracking").
 **Non-Goals:**
 - No automatic detection or suggestion of the "correct" swing plane angle.
 - No club/shaft tracking (would require new CV work; out of scope per proposal).
-- No multi-line-at-once UI in this change (one line per camera view is enough to start).
+- No more than five lines per camera view; automatic plane detection and unlimited line
+  collections are out of scope.
 
 ## Decisions
 
@@ -39,13 +40,14 @@ remains as a secondary safety net if a browser fires that event independently.
 Alternative considered: give Pro Mode its own independent speed state — rejected, since
 the two views must move at the same rate by definition (it's the same swing).
 
-**Reference line as an absolutely-positioned SVG overlay per camera, not baked into
+**Reference lines as an absolutely-positioned SVG overlay per camera, not baked into
 video pixels.**
 Mirrors the existing ball-marker pattern (`position: absolute` element sized against
-`videoSize`), but using an SVG `<line>` with draggable circle handles at each endpoint,
+`videoSize`), but uses one SVG `<line>` with draggable circle handles per saved line,
 layered over the `<video>` in the same wrapping container. Positions are stored as
-fractions (0-1) of video width/height (like the ball marker's percentage-based
-`left`/`top`), so the line stays aligned if the video element is resized.
+percentages in a per-camera array, so each line stays aligned if the video element is
+resized. A per-camera toolbar owns the collection: add until five lines exist, select a
+line for editing, change its color/visibility, or delete it.
 Alternatives considered:
 - *Canvas overlay*: more manual hit-testing for drag handles; SVG gets pointer events
   and hover/drag affordances for free.
@@ -57,8 +59,9 @@ Alternatives considered:
 `pro-mode` preference pattern.**
 `camera_1`/`camera_2` are stable role identifiers already used as dict keys throughout
 the frontend (`videoSources`, `videoRefs`). Storing
-`swing-plane-line:<camera>` -> `{ x1, y1, x2, y2, color, visible }` as JSON keeps the
-same low-ceremony approach as `pro-mode` and needs no backend schema or API change.
+`swing-plane-lines:<camera>` -> `{ lines: [{ x1, y1, x2, y2, color, visible }],
+selectedIndex }` as JSON keeps the same low-ceremony approach as `pro-mode` and needs no
+backend schema or API change.
 Alternative considered: persist per-session (would let different swings show different
 lines, but the proposal's "no re-drawing every session" framing plus the added state
 management complexity make the simpler global-per-camera choice preferable for this

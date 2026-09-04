@@ -10,12 +10,12 @@ the app tracks body pose only (no club/shaft tracking).
 
 - Add a single slow-motion slider (0-100%, matching the existing single-camera view's
   control) to Pro Mode that sets the playback rate of both synced camera views together.
-- Add a per-camera straight reference line overlay: the golfer can draw/position a
-  straight line on each camera view independently, pick its color, toggle it on/off, and
-  it stays fixed in screen space (no landmark or club tracking) so it can be compared by
-  eye against the swing.
-- Reference line position and color persist per camera the same way the Pro Mode
-  preference already persists (so it doesn't need re-drawing every session).
+- Add up to five independent straight reference lines per camera view: the golfer can
+  draw/position each line independently, choose its color, toggle it on/off, and remove
+  it. Lines stay fixed in screen space (no landmark or club tracking) so backswing and
+  downswing paths can be compared by eye.
+- Persist each camera's line collection, including each line's position, color, and
+  visibility, the same way the Pro Mode preference already persists.
 
 ## Capabilities
 
