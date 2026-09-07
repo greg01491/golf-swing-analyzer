@@ -11,7 +11,7 @@ permissions:
 jobs:
   build-and-release:
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -25,7 +25,23 @@ jobs:
       - working-directory: frontend
         run: npm ci
       - working-directory: frontend
-        run: npm run electron:build
+        run: npm run build
+      - working-directory: frontend
+        run: npm run backend:build
+      - working-directory: frontend
+        run: npx electron-builder --publish never
+      - name: Verify updater artifacts
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem "frontend/release/Golf-Swing-Analyzer-Setup-*.exe" -File
+          $blockmap = Get-ChildItem "frontend/release/Golf-Swing-Analyzer-Setup-*.exe.blockmap" -File
+          $latest = "frontend/release/latest.yml"
+          if (-not $installer) { throw "Installer was not produced" }
+          if (-not $blockmap) { throw "Installer blockmap was not produced" }
+          if (-not (Test-Path $latest)) { throw "latest.yml was not produced" }
+          Write-Host "Installer: $($installer.FullName) ($($installer.Length) bytes)"
+          Write-Host "Blockmap: $($blockmap.FullName) ($($blockmap.Length) bytes)"
+          Write-Host "Updater manifest: $latest"
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
