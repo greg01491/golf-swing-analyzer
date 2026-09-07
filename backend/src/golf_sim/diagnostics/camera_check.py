@@ -14,7 +14,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Protocol
 
-from golf_sim.capture.source import resolve_camera_index
+from golf_sim.capture.source import apply_camera_controls, resolve_camera_index
 from golf_sim.config import CameraDeviceConfig, SystemRequirementsConfig
 
 _SAMPLE_FRAMES = 15
@@ -32,6 +32,7 @@ _PROBE_TIMEOUT_S = 8.0
 
 class _Capture(Protocol):
     def isOpened(self) -> bool: ...
+    def set(self, prop_id: int, value: float) -> bool: ...
     def get(self, prop_id: int) -> float: ...
     def read(self) -> tuple[bool, object]: ...
     def release(self) -> None: ...
@@ -58,12 +59,17 @@ class CameraCheckResult:
     actual_width: int | None = None
     actual_height: int | None = None
     measured_fps: float | None = None
+    controls: dict[str, dict[str, float | bool | None]] = field(default_factory=dict)
+    sharpness: float | None = None
+    brightness: float | None = None
     meets_minimum: bool = False
     warnings: list[str] = field(default_factory=list)
     error: str | None = None
 
 
-def _probe(dev: CameraDeviceConfig, open_capture, warmup_s: float) -> tuple[int, int, float | None]:
+def _probe(
+    dev: CameraDeviceConfig, open_capture, warmup_s: float
+) -> tuple[int, int, float | None, dict, float | None, float | None]:
     """Runs on a worker thread (see check_camera) -- may block indefinitely
     on a stalled camera, so nothing here must be relied on to return
     promptly."""
@@ -74,6 +80,7 @@ def _probe(dev: CameraDeviceConfig, open_capture, warmup_s: float) -> tuple[int,
     try:
         if not cap.isOpened():
             raise RuntimeError(f"could not open camera {dev.name or index!r}")
+        controls = apply_camera_controls(cap, dev)
         actual_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         actual_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
@@ -83,13 +90,25 @@ def _probe(dev: CameraDeviceConfig, open_capture, warmup_s: float) -> tuple[int,
 
         start = time.monotonic()
         grabbed = 0
+        sample_frame = None
         for _ in range(_SAMPLE_FRAMES):
-            ok, _ = cap.read()
+            ok, frame = cap.read()
             if ok:
                 grabbed += 1
+                if sample_frame is None:
+                    sample_frame = frame
         elapsed = time.monotonic() - start
         measured_fps = round(grabbed / elapsed, 1) if elapsed > 0 else None
-        return actual_width, actual_height, measured_fps
+        sharpness = None
+        brightness = None
+        if sample_frame is not None:
+            import numpy as np
+
+            if isinstance(sample_frame, np.ndarray) and sample_frame.size:
+                gray = cv2.cvtColor(sample_frame, cv2.COLOR_BGR2GRAY)
+                sharpness = round(float(cv2.Laplacian(gray, cv2.CV_64F).var()), 2)
+                brightness = round(float(gray.mean()), 2)
+        return actual_width, actual_height, measured_fps, controls, sharpness, brightness
     finally:
         cap.release()
 
@@ -132,22 +151,50 @@ def check_camera(
         return result
 
     result.opened = True
-    result.actual_width, result.actual_height, result.measured_fps = outcome["value"]
+    (
+        result.actual_width,
+        result.actual_height,
+        result.measured_fps,
+        result.controls,
+        result.sharpness,
+        result.brightness,
+    ) = outcome["value"]
 
     warnings: list[str] = []
+    minimum_failed = False
     if (
         result.actual_width < requirements.min_camera_width
         or result.actual_height < requirements.min_camera_height
     ):
+        minimum_failed = True
         warnings.append(
             f"camera only delivers {result.actual_width}x{result.actual_height} "
             f"(minimum {requirements.min_camera_width}x{requirements.min_camera_height})"
         )
     if result.measured_fps is not None and result.measured_fps < requirements.min_camera_fps:
+        minimum_failed = True
         warnings.append(
             f"camera only sustains ~{result.measured_fps} fps "
             f"(minimum {requirements.min_camera_fps}) -- fast swing motion may blur or drop frames"
         )
+    if (
+        result.brightness is not None
+        and result.brightness < requirements.min_camera_brightness
+    ):
+        warnings.append(
+            f"camera sample is dark ({result.brightness:.1f} brightness; "
+            f"recommended minimum {requirements.min_camera_brightness:.1f}) -- "
+            "motion blur may increase"
+        )
+    if (
+        result.sharpness is not None
+        and result.sharpness < requirements.min_camera_sharpness
+    ):
+        warnings.append(
+            f"camera sample is soft ({result.sharpness:.1f} sharpness; "
+            f"recommended minimum {requirements.min_camera_sharpness:.1f}) -- "
+            "check focus or lighting"
+        )
     result.warnings = warnings
-    result.meets_minimum = not warnings
+    result.meets_minimum = not minimum_failed
     return result

@@ -10,6 +10,7 @@ import cv2
 import numpy as np
 
 from golf_sim.capture.frame import Frame
+from golf_sim.config import CameraDeviceConfig
 
 
 class CameraSource(Protocol):
@@ -44,6 +45,37 @@ _ROTATE_FLAGS = {
 }
 
 
+def apply_camera_controls(
+    cap: cv2.VideoCapture, config: CameraDeviceConfig
+) -> dict[str, dict[str, float | bool | None]]:
+    """Apply optional controls and return set/read-back values for diagnostics."""
+    controls: dict[str, tuple[int, float]] = {}
+    if config.auto_exposure is not None:
+        controls["auto_exposure"] = (
+            cv2.CAP_PROP_AUTO_EXPOSURE,
+            0.75 if config.auto_exposure else 0.25,
+        )
+    if config.exposure is not None:
+        controls["exposure"] = (cv2.CAP_PROP_EXPOSURE, config.exposure)
+    if config.gain is not None:
+        controls["gain"] = (cv2.CAP_PROP_GAIN, config.gain)
+    if config.autofocus is not None:
+        controls["autofocus"] = (cv2.CAP_PROP_AUTOFOCUS, float(config.autofocus))
+    if config.focus is not None:
+        controls["focus"] = (cv2.CAP_PROP_FOCUS, config.focus)
+
+    result: dict[str, dict[str, float | bool | None]] = {}
+    for name, (property_id, requested) in controls.items():
+        try:
+            set_ok = bool(cap.set(property_id, requested))
+            readback = cap.get(property_id)
+        except Exception:  # noqa: BLE001 -- unsupported driver controls are diagnostics
+            set_ok = False
+            readback = None
+        result[name] = {"requested": requested, "set_ok": set_ok, "readback": readback}
+    return result
+
+
 class OpenCVCameraSource:
     def __init__(
         self,
@@ -53,6 +85,7 @@ class OpenCVCameraSource:
         fps: float,
         name: str | None = None,
         rotation_deg: int = 0,
+        controls: CameraDeviceConfig | None = None,
     ):
         """If name is given it takes precedence over index (see
         resolve_camera_index for why). rotation_deg corrects a physically
@@ -70,6 +103,7 @@ class OpenCVCameraSource:
         self.height = height
         self.fps = fps
         self.rotation_deg = rotation_deg
+        self.controls = controls
         self._cap: cv2.VideoCapture | None = None
 
     def open(self) -> None:
@@ -78,6 +112,8 @@ class OpenCVCameraSource:
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
         cap.set(cv2.CAP_PROP_FPS, self.fps)
+        if self.controls is not None:
+            apply_camera_controls(cap, self.controls)
         if not cap.isOpened():
             raise RuntimeError(f"could not open camera {self.name or index!r}")
         self._cap = cap

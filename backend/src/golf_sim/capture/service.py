@@ -37,6 +37,7 @@ class CaptureService:
                     dev.fps,
                     name=dev.name,
                     rotation_deg=dev.rotation_deg,
+                    controls=dev,
                 )
             )
             buffer = RollingBuffer(max_age_s=buffer_age)
@@ -79,6 +80,17 @@ class CaptureService:
         clips = {}
         for role, stream in self.streams.items():
             raw = extract_window(stream.buffer, trigger_time, pre, duration)
+            raw_duration = raw[-1].timestamp - raw[0].timestamp if len(raw) > 1 else 0.0
+            self.camera_meta[role].update(
+                {
+                    "source_frame_count": len(raw),
+                    "source_duration_s": round(raw_duration, 6),
+                    "source_effective_fps": (
+                        round((len(raw) - 1) / raw_duration, 3) if raw_duration > 0 else None
+                    ),
+                    "resampled_to_grid": True,
+                }
+            )
             clips[role] = resample_to_grid(
                 raw, start_time, duration, fps=self.camera_meta[role]["fps"]
             )

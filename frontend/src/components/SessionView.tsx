@@ -19,6 +19,18 @@ const cameraLabel = (camera: string) => {
   return camera.replaceAll('_', ' ')
 }
 
+const clampPlaybackPercent = (value: number) =>
+  Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : 100
+
+const applyPlaybackRate = (video: HTMLVideoElement, percent: number) => {
+  if (!video.isConnected) return
+  if (percent <= 0) {
+    video.pause()
+    return
+  }
+  video.playbackRate = Math.max(0.01, Math.min(1, percent / 100))
+}
+
 export default function SessionView({ sessionId, onChanged, focusedMetric, onFocusMetric }: Props) {
   const [detail, setDetail] = useState<SessionDetail | null>(null)
   const [landmarks, setLandmarks] = useState<Landmarks | null>(null)
@@ -31,7 +43,10 @@ export default function SessionView({ sessionId, onChanged, focusedMetric, onFoc
   const [showOverlay, setShowOverlay] = useState(true)
   const [show3D, setShow3D] = useState(false)
   const [deleting, setDeleting] = useState(false)
-  const [speed, setSpeed] = useState(100)
+  const [speed, setSpeed] = useState(() => {
+    const stored = Number(localStorage.getItem('playback-speed'))
+    return clampPlaybackPercent(stored)
+  })
   const [labelDraft, setLabelDraft] = useState('')
   const [groupDraft, setGroupDraft] = useState('My Swings')
   const [savingMeta, setSavingMeta] = useState(false)
@@ -41,6 +56,10 @@ export default function SessionView({ sessionId, onChanged, focusedMetric, onFoc
   useEffect(() => {
     localStorage.setItem('pro-mode', proMode ? 'on' : 'off')
   }, [proMode])
+
+  useEffect(() => {
+    localStorage.setItem('playback-speed', String(speed))
+  }, [speed])
 
   useEffect(() => {
     setDetail(null)
@@ -90,7 +109,7 @@ export default function SessionView({ sessionId, onChanged, focusedMetric, onFoc
   // every currently mounted video -- in Pro Mode that's both camera views
   useEffect(() => {
     for (const video of Object.values(videoRefs.current)) {
-      if (video) video.playbackRate = speed / 100
+      if (video) applyPlaybackRate(video, speed)
     }
   }, [speed])
 
@@ -141,7 +160,7 @@ export default function SessionView({ sessionId, onChanged, focusedMetric, onFoc
       if (Math.abs(video.currentTime - primary.currentTime) > 0.05) {
         video.currentTime = primary.currentTime
       }
-      video.playbackRate = primary.playbackRate
+      applyPlaybackRate(video, speed)
       if (action === 'play') void video.play().catch(() => undefined)
       if (action === 'pause') video.pause()
     }
@@ -285,6 +304,7 @@ export default function SessionView({ sessionId, onChanged, focusedMetric, onFoc
                     src={videoSources[cam]}
                     controls={index === 0}
                     loop
+                    onLoadedMetadata={(e) => applyPlaybackRate(e.currentTarget, speed)}
                     onPlay={index === 0 ? () => syncProVideos('play') : undefined}
                     onPause={index === 0 ? () => syncProVideos('pause') : undefined}
                     onSeeked={index === 0 ? () => syncProVideos('seek') : undefined}
@@ -316,7 +336,7 @@ export default function SessionView({ sessionId, onChanged, focusedMetric, onFoc
                 max={100}
                 step={1}
                 value={speed}
-                onChange={(e) => setSpeed(Number(e.target.value))}
+                onChange={(e) => setSpeed(clampPlaybackPercent(Number(e.target.value)))}
               />
               <span className="speed-value">{speed}%</span>
             </label>
@@ -347,7 +367,7 @@ export default function SessionView({ sessionId, onChanged, focusedMetric, onFoc
                 loop
                 onLoadedMetadata={(e) => {
                   const target = e.currentTarget
-                  target.playbackRate = speed / 100
+                  applyPlaybackRate(target, speed)
                   setVideoSize({ width: target.videoWidth, height: target.videoHeight })
                 }}
               />
@@ -382,7 +402,7 @@ export default function SessionView({ sessionId, onChanged, focusedMetric, onFoc
                   max={100}
                   step={1}
                   value={speed}
-                  onChange={(e) => setSpeed(Number(e.target.value))}
+                  onChange={(e) => setSpeed(clampPlaybackPercent(Number(e.target.value)))}
                 />
                 <span className="speed-value">{speed}%</span>
               </label>

@@ -163,6 +163,9 @@ export interface CameraCheckResult {
   actual_width: number | null
   actual_height: number | null
   measured_fps: number | null
+  controls: Record<string, { requested: number | boolean; set_ok: boolean; readback: number | null }>
+  sharpness: number | null
+  brightness: number | null
   meets_minimum: boolean
   warnings: string[]
   error: string | null

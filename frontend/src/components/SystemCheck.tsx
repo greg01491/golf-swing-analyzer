@@ -131,6 +131,12 @@ export default function SystemCheck() {
                       <span>measured frame rate</span>
                       <strong>{c.measured_fps ?? '?'} fps</strong>
                     </div>
+                    <div className="spec-row">
+                      <span>sample sharpness / brightness</span>
+                      <strong>
+                        {c.sharpness ?? '?'} / {c.brightness ?? '?'}
+                      </strong>
+                    </div>
                     {c.warnings.length > 0 && (
                       <ul className="check-warnings">
                         {c.warnings.map((w) => (

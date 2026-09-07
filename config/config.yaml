@@ -48,6 +48,11 @@ cameras:
     width: 1280
     height: 720
     fps: 120
+    auto_exposure: null
+    exposure: null
+    gain: null
+    autofocus: null
+    focus: null
     rotation_deg: 0
   - id: 2
     name: HD USB Camera
@@ -55,6 +60,11 @@ cameras:
     width: 1280
     height: 720
     fps: 120
+    auto_exposure: null
+    exposure: null
+    gain: null
+    autofocus: null
+    focus: null
     rotation_deg: 270
 pose:
   # Pose2Sim settings (spec.md §4.3; OQ2 resolved -- RTMPose via Pose2Sim).
@@ -209,6 +219,8 @@ system_requirements:
   min_camera_width: 1280
   min_camera_height: 720
   min_camera_fps: 30
+  min_camera_brightness: 20
+  min_camera_sharpness: 5
   # "close other applications" warning thresholds for current system load,
   # checked live (not just static hardware specs).
   high_cpu_load_pct: 70

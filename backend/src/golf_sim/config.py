@@ -55,6 +55,13 @@ class CameraDeviceConfig(BaseModel):
     width: int
     height: int
     fps: int
+    # Optional DirectShow image controls. null preserves the camera driver's
+    # current behavior for rigs that do not expose a given control.
+    auto_exposure: bool | None = None
+    exposure: float | None = None
+    gain: float | None = None
+    autofocus: bool | None = None
+    focus: float | None = None
     # DirectShow device name; when set, takes precedence over id because
     # Windows camera indices are not stable across processes.
     name: str | None = None
@@ -200,6 +207,8 @@ class SystemRequirementsConfig(BaseModel):
     min_camera_width: int = 1280
     min_camera_height: int = 720
     min_camera_fps: float = 30.0
+    min_camera_brightness: float = 20.0
+    min_camera_sharpness: float = 5.0
     # "close other applications" warning thresholds for current system load.
     high_cpu_load_pct: float = 70.0
     high_ram_used_pct: float = 80.0

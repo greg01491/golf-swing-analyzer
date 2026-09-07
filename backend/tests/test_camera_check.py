@@ -1,17 +1,19 @@
 import time
 
 import cv2
+import numpy as np
 
 from golf_sim.config import CameraDeviceConfig, SystemRequirementsConfig
 from golf_sim.diagnostics.camera_check import check_camera
 
 
 class _FakeCap:
-    def __init__(self, width, height, opens=True, read_delay_s=0.0):
+    def __init__(self, width, height, opens=True, read_delay_s=0.0, frame=None):
         self._width = width
         self._height = height
         self._opens = opens
         self._read_delay_s = read_delay_s
+        self._frame = frame
         self.released = False
 
     def isOpened(self):
@@ -27,7 +29,7 @@ class _FakeCap:
     def read(self):
         if self._read_delay_s:
             time.sleep(self._read_delay_s)
-        return True, object()
+        return True, self._frame if self._frame is not None else object()
 
     def release(self):
         self.released = True
@@ -89,6 +91,22 @@ def test_flags_low_measured_fps():
     )
     assert result.meets_minimum is False
     assert any("fps" in w for w in result.warnings)
+
+
+def test_reports_advisory_quality_warnings_without_failing_camera():
+    dark = np.zeros((720, 1280, 3), dtype=np.uint8)
+    fake = _FakeCap(1280, 720, frame=dark)
+    result = check_camera(
+        _dev(),
+        _requirements(min_camera_brightness=20, min_camera_sharpness=5),
+        open_capture=lambda *a: fake,
+        warmup_s=0,
+    )
+    assert result.meets_minimum is True
+    assert result.brightness == 0
+    assert result.sharpness == 0
+    assert any("dark" in warning for warning in result.warnings)
+    assert any("soft" in warning for warning in result.warnings)
 
 
 def test_reports_error_when_camera_fails_to_open():
