@@ -99,9 +99,9 @@ def test_missing_bundled_config_reports_the_packaging_cause(tmp_path, monkeypatc
 def test_spec_keeps_pose2sim_demo_configs_out_of_the_media_filter():
     """The Demo_* filter exists to drop ~26MB of demo videos. It must not
     also drop the 130KB of Config.toml files calibration depends on."""
-    spec = (
-        Path(__file__).resolve().parents[1] / "golf_sim_backend.spec"
-    ).read_text(encoding="utf-8")
+    spec = (Path(__file__).resolve().parents[1] / "golf_sim_backend.spec").read_text(
+        encoding="utf-8"
+    )
 
     assert 'KEEP_DEMO_SUFFIXES = {".toml"}' in spec
     assert "Path(src).suffix.lower() not in KEEP_DEMO_SUFFIXES" in spec

@@ -72,13 +72,13 @@ def mark_calibration_shot(
     if kind == "intrinsics":
         for clip in sorted(Path(session_dir).glob("camera_*.mp4")):
             board_counts[clip.stem] = count_board_in_clip(clip, corners)
-        
+
         # Save a preview frame from camera_1 to help user see what was captured
         camera_1_mp4 = Path(session_dir) / "camera_1.mp4"
         if camera_1_mp4.exists():
             preview_path = Path(session_dir) / "preview.jpg"
             _save_preview_frame(camera_1_mp4, preview_path)
-    
+
     marker = {
         "kind": kind,
         "for_camera": for_camera,

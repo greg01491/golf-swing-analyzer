@@ -177,19 +177,13 @@ def check_camera(
             f"camera only sustains ~{result.measured_fps} fps "
             f"(minimum {requirements.min_camera_fps}) -- fast swing motion may blur or drop frames"
         )
-    if (
-        result.brightness is not None
-        and result.brightness < requirements.min_camera_brightness
-    ):
+    if result.brightness is not None and result.brightness < requirements.min_camera_brightness:
         warnings.append(
             f"camera sample is dark ({result.brightness:.1f} brightness; "
             f"recommended minimum {requirements.min_camera_brightness:.1f}) -- "
             "motion blur may increase"
         )
-    if (
-        result.sharpness is not None
-        and result.sharpness < requirements.min_camera_sharpness
-    ):
+    if result.sharpness is not None and result.sharpness < requirements.min_camera_sharpness:
         warnings.append(
             f"camera sample is soft ({result.sharpness:.1f} sharpness; "
             f"recommended minimum {requirements.min_camera_sharpness:.1f}) -- "

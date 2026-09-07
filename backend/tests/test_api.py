@@ -609,9 +609,7 @@ def test_capture_arm_disarm_and_manual_trigger(client):
     assert detail["metadata"]["club"] == "7_iron"
 
 
-def test_arming_works_after_the_calibration_wizard_started_the_cameras(
-    tmp_path, config, processor
-):
+def test_arming_works_after_the_calibration_wizard_started_the_cameras(tmp_path, config, processor):
     """Regression: the calibration wizard starts the cameras only, but
     `running` means "cameras up", so arm() skipped start() and left the mic
     uncreated. That surfaced as a message-less 'failed to arm: '."""

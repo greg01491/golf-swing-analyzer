@@ -55,17 +55,17 @@ def find_board_corners(
     if not cap.isOpened():
         logger.error(f"Cannot open video file: {clip}")
         return []
-    
+
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     if total == 0:
         logger.error(f"Video has no frames: {clip}")
         cap.release()
         return []
-    
+
     found = []
     samples_to_check = min(max_samples, total)
     logger.debug(f"Checking {samples_to_check} frames from {clip} for {pattern} checkerboard")
-    
+
     try:
         for i in range(samples_to_check):
             cap.set(cv2.CAP_PROP_POS_FRAMES, int(i * total / samples_to_check))
@@ -82,7 +82,7 @@ def find_board_corners(
                 logger.debug(f"  Frame {i}: no board")
     finally:
         cap.release()
-    
+
     logger.info(f"Board detection in {clip}: {len(found)} / {samples_to_check} frames detected")
     return found
 
