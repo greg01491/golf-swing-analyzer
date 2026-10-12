@@ -78,6 +78,37 @@ def _load_keypoints(session_dir: Path, camera_role: str, frame_index: int) -> np
     return keypoints
 
 
+def _wrist_visibility_by_camera(
+    session_dir: Path,
+    camera_roles: list[str],
+    swing_start: int,
+    swing_end: int,
+) -> dict[str, dict[str, float]] | None:
+    start, end = max(0, min(swing_start, swing_end)), max(swing_start, swing_end)
+    frame_count = end - start + 1
+    if frame_count <= 0:
+        return None
+
+    if not any(any(_camera_json_dir(session_dir, role).glob("*.json")) for role in camera_roles):
+        return None
+
+    visibility: dict[str, dict[str, float]] = {}
+    for role in camera_roles:
+        visible = {_LWRIST: 0, _RWRIST: 0}
+        for frame_index in range(start, end + 1):
+            keypoints = _load_keypoints(session_dir, role, frame_index)
+            if keypoints is None:
+                continue
+            confidence = keypoints[[_LWRIST, _RWRIST], 2]
+            for index, score in zip((_LWRIST, _RWRIST), confidence, strict=True):
+                visible[index] += int(np.isfinite(score) and score >= 0.6)
+        visibility[role] = {
+            "LWrist": visible[_LWRIST] / frame_count,
+            "RWrist": visible[_RWRIST] / frame_count,
+        }
+    return visibility
+
+
 def _mean_valid_point(keypoints: np.ndarray, indices: list[int]) -> tuple[float, float] | None:
     points = keypoints[indices, :2]
     confidences = keypoints[indices, 2]
@@ -277,13 +308,27 @@ def analyze_session(session_dir: Path, config) -> Path:
     tips = generate_tips(report)
 
     out_path = session_dir / "metrics.json"
+    camera_devices = getattr(getattr(config, "cameras", None), "devices", [])
+    camera_roles = [device.role for device in camera_devices]
+    camera_wrist_visibility = _wrist_visibility_by_camera(
+        session_dir,
+        camera_roles,
+        report.phases.address_frame,
+        report.phases.impact_frame,
+    )
+    tracking_quality = assess_tracking_quality(
+        seq,
+        swing_window=(report.phases.address_frame, report.phases.impact_frame),
+        camera_wrist_visibility=camera_wrist_visibility,
+    )
+
     payload = {
         "source_trc": trc_path.name,
         "club": club,
         "club_profile": config.metrics.club_profile_mapping.get(club) if club else None,
         # quality first so the UI can caveat everything below it when the
         # reconstruction is too poor to trust (see analysis.quality)
-        "tracking_quality": assess_tracking_quality(seq).to_dict(),
+        "tracking_quality": tracking_quality.to_dict(),
         **report.to_dict(),
         "tips": tips_to_dicts(tips),
         "ball": ball_info,

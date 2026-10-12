@@ -261,6 +261,22 @@ export default function SessionView({ sessionId, onChanged, focusedMetric, onFoc
       {quality && !quality.reliable && (
         <div className="panel quality-warning">
           <strong>⚠ Low tracking quality — metrics and positions below may be unreliable.</strong>
+          {quality.swing_moving_fraction != null && (
+            <p className="muted">
+              Hand motion: {Math.round(quality.swing_moving_fraction * 100)}% from address to
+              impact; {Math.round(quality.moving_fraction * 100)}% across the full clip.
+            </p>
+          )}
+          {quality.camera_wrist_visibility && (
+            <ul>
+              {Object.entries(quality.camera_wrist_visibility).map(([camera, wrists]) => (
+                <li key={camera}>
+                  {cameraLabel(camera)} wrist confidence: left {Math.round(wrists.LWrist * 100)}%,
+                  right {Math.round(wrists.RWrist * 100)}%.
+                </li>
+              ))}
+            </ul>
+          )}
           <ul>
             {quality.warnings.map((w) => (
               <li key={w}>{w}</li>
@@ -268,9 +284,9 @@ export default function SessionView({ sessionId, onChanged, focusedMetric, onFoc
           </ul>
           <p className="muted">
             The video and skeleton are still shown, but the swing couldn't be reconstructed cleanly
-            in 3D. This is usually a calibration or camera-framing issue — make sure your whole body
-            stays in <em>both</em> camera views through the swing, and that the rig calibration is
-            current.
+            in 3D. Use the specific causes above: improve wrist visibility, framing, or lighting
+            for camera warnings. Recalibrate only when the warning identifies physically impossible
+            hand travel.
           </p>
         </div>
       )}
