@@ -262,6 +262,8 @@ calibration.
 - **THEN** the session warning identifies the camera, wrist, and measured coverage
 - **AND** it recommends improving that wrist's visibility, camera framing, or lighting
 - **AND** it does not recommend recalibration solely because of low keypoint visibility
+- **AND** confidence advisories that do not make the reconstruction unreliable are
+  displayed without disabling P-position navigation
 
 #### Scenario: Low motion during the active swing
 

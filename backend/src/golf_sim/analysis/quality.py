@@ -14,7 +14,7 @@ garbage checkpoints as fact.
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 
 import numpy as np
 
@@ -30,6 +30,7 @@ _MAX_PLAUSIBLE_HAND_RANGE_M = 4.5
 _MIN_MOVING_FRACTION = 0.6
 _FROZEN_STEP_M = 0.001  # <1mm between frames == a held (gap-filled) value
 _KEYPOINT_CONFIDENCE_THRESHOLD = 0.6
+_TRIANGULATION_CONFIDENCE_THRESHOLD = 0.3
 _MIN_WRIST_VISIBILITY = 0.8
 
 
@@ -39,8 +40,10 @@ class TrackingQuality:
     hand_vertical_range_m: float
     reliable: bool
     warnings: list[str]
+    advisories: list[str] = field(default_factory=list)
     swing_moving_fraction: float | None = None
     camera_wrist_visibility: dict[str, dict[str, float]] | None = None
+    camera_wrist_triangulation_coverage: dict[str, dict[str, float]] | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -54,9 +57,11 @@ def assess_tracking_quality(
     seq: LandmarkSequence,
     swing_window: tuple[int, int] | None = None,
     camera_wrist_visibility: dict[str, dict[str, float]] | None = None,
+    camera_wrist_triangulation_coverage: dict[str, dict[str, float]] | None = None,
 ) -> TrackingQuality:
     hands = _hands(seq)
     warnings: list[str] = []
+    advisories: list[str] = []
 
     if seq.n_frames < 2:
         return TrackingQuality(0.0, 0.0, False, ["too few frames to analyse"])
@@ -92,15 +97,27 @@ def assess_tracking_quality(
                 "The active swing may be gap-filled, so positions and metrics are unreliable."
             )
 
+    if camera_wrist_triangulation_coverage is not None:
+        for camera, wrists in camera_wrist_triangulation_coverage.items():
+            for wrist, coverage in wrists.items():
+                if coverage < _MIN_WRIST_VISIBILITY:
+                    warnings.append(
+                        f"{camera} {wrist} met Pose2Sim's triangulation confidence cutoff "
+                        f"({_TRIANGULATION_CONFIDENCE_THRESHOLD:.1f}) in only "
+                        f"{coverage * 100:.0f}% of address-to-impact frames; 3D tracking may "
+                        "be gap-filled. Improve wrist visibility, framing, or lighting."
+                    )
+
     if camera_wrist_visibility is not None:
         for camera, wrists in camera_wrist_visibility.items():
             for wrist, coverage in wrists.items():
                 if coverage < _MIN_WRIST_VISIBILITY:
-                    warnings.append(
+                    advisories.append(
                         f"{camera} {wrist} confidence was at least "
                         f"{_KEYPOINT_CONFIDENCE_THRESHOLD:.1f} in only {coverage * 100:.0f}% "
-                        "of address-to-impact frames; improve wrist visibility, framing, or "
-                        "lighting. This does not by itself indicate bad calibration."
+                        "of address-to-impact frames. This is a visibility advisory; Pose2Sim "
+                        f"still accepts confidence at or above "
+                        f"{_TRIANGULATION_CONFIDENCE_THRESHOLD:.1f}."
                     )
 
     if vertical_range > _MAX_PLAUSIBLE_HAND_RANGE_M:
@@ -114,8 +131,10 @@ def assess_tracking_quality(
         hand_vertical_range_m=round(vertical_range, 2),
         reliable=not warnings,
         warnings=warnings,
+        advisories=advisories,
         swing_moving_fraction=(
             None if swing_moving_fraction is None else round(swing_moving_fraction, 3)
         ),
         camera_wrist_visibility=camera_wrist_visibility,
+        camera_wrist_triangulation_coverage=camera_wrist_triangulation_coverage,
     )

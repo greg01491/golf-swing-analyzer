@@ -258,9 +258,13 @@ export default function SessionView({ sessionId, onChanged, focusedMetric, onFoc
         </div>
       </details>
 
-      {quality && !quality.reliable && (
+      {quality && (!quality.reliable || (quality.advisories?.length ?? 0) > 0) && (
         <div className="panel quality-warning">
-          <strong>⚠ Low tracking quality — metrics and positions below may be unreliable.</strong>
+          <strong>
+            {quality.reliable
+              ? 'Tracking confidence advisory — some keypoints are less certain.'
+              : '⚠ Low tracking quality — metrics and positions below may be unreliable.'}
+          </strong>
           {quality.swing_moving_fraction != null && (
             <p className="muted">
               Hand motion: {Math.round(quality.swing_moving_fraction * 100)}% from address to
@@ -277,16 +281,24 @@ export default function SessionView({ sessionId, onChanged, focusedMetric, onFoc
               ))}
             </ul>
           )}
-          <ul>
-            {quality.warnings.map((w) => (
-              <li key={w}>{w}</li>
-            ))}
-          </ul>
+          {quality.warnings.length > 0 && (
+            <ul>
+              {quality.warnings.map((warning) => (
+                <li key={warning}>{warning}</li>
+              ))}
+            </ul>
+          )}
+          {(quality.advisories?.length ?? 0) > 0 && (
+            <ul>
+              {quality.advisories?.map((advisory) => (
+                <li key={advisory}>{advisory}</li>
+              ))}
+            </ul>
+          )}
           <p className="muted">
-            The video and skeleton are still shown, but the swing couldn't be reconstructed cleanly
-            in 3D. Use the specific causes above: improve wrist visibility, framing, or lighting
-            for camera warnings. Recalibrate only when the warning identifies physically impossible
-            hand travel.
+            {quality.reliable
+              ? 'These keypoints are still accepted for 3D tracking; the advisory means their positions may be less precise. Improve wrist visibility, framing, or lighting if possible.'
+              : 'The video and skeleton are still shown, but some positions may be unreliable. Use the specific causes above: improve wrist visibility, framing, or lighting for camera warnings. Recalibrate only when the warning identifies physically impossible hand travel.'}
           </p>
         </div>
       )}

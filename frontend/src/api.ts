@@ -52,8 +52,10 @@ export interface TrackingQuality {
   hand_vertical_range_m: number
   reliable: boolean
   warnings: string[]
+  advisories?: string[]
   swing_moving_fraction?: number | null
   camera_wrist_visibility?: Record<string, { LWrist: number; RWrist: number }> | null
+  camera_wrist_triangulation_coverage?: Record<string, { LWrist: number; RWrist: number }> | null
 }
 
 export interface SessionDetail {

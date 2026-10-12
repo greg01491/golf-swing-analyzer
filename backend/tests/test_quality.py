@@ -75,12 +75,31 @@ def test_weak_camera_wrist_coverage_names_camera_and_wrist():
             "camera_1": {"LWrist": 0.71, "RWrist": 0.96},
             "camera_2": {"LWrist": 0.99, "RWrist": 0.83},
         },
+        camera_wrist_triangulation_coverage={
+            "camera_1": {"LWrist": 1.0, "RWrist": 1.0},
+            "camera_2": {"LWrist": 1.0, "RWrist": 1.0},
+        },
+    )
+
+    assert quality.reliable is True
+    assert quality.camera_wrist_visibility["camera_1"]["LWrist"] == 0.71
+    assert any("camera_1 LWrist" in note and "71%" in note for note in quality.advisories)
+    assert quality.warnings == []
+
+
+def test_wrist_below_triangulation_cutoff_is_unreliable():
+    t = np.linspace(0, np.pi, 120)
+    hands = np.stack([np.zeros_like(t), 0.7 * np.sin(t), np.zeros_like(t)], axis=1)
+    quality = assess_tracking_quality(
+        _seq(hands),
+        swing_window=(0, len(hands) - 1),
+        camera_wrist_visibility={"camera_1": {"LWrist": 0.71, "RWrist": 0.96}},
+        camera_wrist_triangulation_coverage={"camera_1": {"LWrist": 0.72, "RWrist": 1.0}},
     )
 
     assert quality.reliable is False
-    assert quality.camera_wrist_visibility["camera_1"]["LWrist"] == 0.71
-    assert any("camera_1 LWrist" in warning and "71%" in warning for warning in quality.warnings)
-    assert all("recalibrat" not in warning.lower() for warning in quality.warnings)
+    assert any("triangulation confidence cutoff" in warning for warning in quality.warnings)
+    assert any("71%" in note for note in quality.advisories)
 
 
 def test_missing_wrist_confidence_preserves_motion_assessment():
@@ -113,8 +132,15 @@ def test_camera_wrist_visibility_aggregates_missing_and_low_confidence_frames(tm
             (camera_dir / f"{camera}_{frame_index:06d}.json").write_text(json.dumps(payload))
 
     visibility = _wrist_visibility_by_camera(tmp_path, ["camera_1", "camera_2"], 0, 2)
+    triangulation_visibility = _wrist_visibility_by_camera(
+        tmp_path, ["camera_1", "camera_2"], 0, 2, confidence_threshold=0.3
+    )
 
     assert visibility == {
+        "camera_1": {"LWrist": 1 / 3, "RWrist": 2 / 3},
+        "camera_2": {"LWrist": 1.0, "RWrist": 1.0},
+    }
+    assert triangulation_visibility == {
         "camera_1": {"LWrist": 1 / 3, "RWrist": 2 / 3},
         "camera_2": {"LWrist": 1.0, "RWrist": 1.0},
     }

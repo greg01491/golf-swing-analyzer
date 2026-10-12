@@ -83,6 +83,7 @@ def _wrist_visibility_by_camera(
     camera_roles: list[str],
     swing_start: int,
     swing_end: int,
+    confidence_threshold: float = 0.6,
 ) -> dict[str, dict[str, float]] | None:
     start, end = max(0, min(swing_start, swing_end)), max(swing_start, swing_end)
     frame_count = end - start + 1
@@ -101,7 +102,7 @@ def _wrist_visibility_by_camera(
                 continue
             confidence = keypoints[[_LWRIST, _RWRIST], 2]
             for index, score in zip((_LWRIST, _RWRIST), confidence, strict=True):
-                visible[index] += int(np.isfinite(score) and score >= 0.6)
+                visible[index] += int(np.isfinite(score) and score >= confidence_threshold)
         visibility[role] = {
             "LWrist": visible[_LWRIST] / frame_count,
             "RWrist": visible[_RWRIST] / frame_count,
@@ -316,10 +317,18 @@ def analyze_session(session_dir: Path, config) -> Path:
         report.phases.address_frame,
         report.phases.impact_frame,
     )
+    camera_wrist_triangulation_coverage = _wrist_visibility_by_camera(
+        session_dir,
+        camera_roles,
+        report.phases.address_frame,
+        report.phases.impact_frame,
+        confidence_threshold=0.3,
+    )
     tracking_quality = assess_tracking_quality(
         seq,
         swing_window=(report.phases.address_frame, report.phases.impact_frame),
         camera_wrist_visibility=camera_wrist_visibility,
+        camera_wrist_triangulation_coverage=camera_wrist_triangulation_coverage,
     )
 
     payload = {
