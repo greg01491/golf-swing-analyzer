@@ -6,6 +6,7 @@ interface Props {
   onSelect: (position: PPosition) => void
   showIdeal: boolean
   onToggleIdeal: (show: boolean) => void
+  reliable: boolean
 }
 
 export default function PPositionPanel({
@@ -14,6 +15,7 @@ export default function PPositionPanel({
   onSelect,
   showIdeal,
   onToggleIdeal,
+  reliable,
 }: Props) {
   const current = positions.find((p) => p.name === selected)
 
@@ -24,11 +26,18 @@ export default function PPositionPanel({
         The 10 checkpoints of golf's "P-System" swing framework. Positions are approximated
         from body pose (no club tracking) — click one to freeze the video and skeleton there.
       </p>
+      {!reliable && (
+        <p className="muted" role="status">
+          Checkpoint seeking is disabled because low tracking quality can put these positions on
+          the wrong frames. Video playback is still available for manual review.
+        </p>
+      )}
       <div className="p-position-strip">
         {positions.map((p) => (
           <button
             key={p.name}
             className={p.name === selected ? 'active' : ''}
+            disabled={!reliable}
             onClick={() => onSelect(p)}
           >
             <span className="p-name">{p.name}</span>

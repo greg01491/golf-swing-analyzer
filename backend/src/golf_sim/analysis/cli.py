@@ -333,7 +333,18 @@ def main() -> None:
         for i, tip in enumerate(report["tips"], 1):
             print(f"  {i}. [{tip['metric']} {tip['direction']}] {tip['text']}")
     else:
-        print("\nno tips -- everything in range. Nice swing.")
+        all_in_range = bool(report["metrics"]) and all(
+            metric["value"] is not None
+            and metric["range"] is not None
+            and metric["in_range"] is True
+            for metric in report["metrics"]
+        )
+        message = (
+            "everything measured is in range. Nice swing."
+            if all_in_range
+            else "no actionable tips for this swing."
+        )
+        print(f"\n{message}")
 
 
 if __name__ == "__main__":

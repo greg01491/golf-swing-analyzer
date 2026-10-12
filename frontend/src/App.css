@@ -747,6 +747,10 @@ ol li {
   gap: 10px;
 }
 
+.club-selection-hint {
+  font-size: 0.8rem;
+}
+
 .mic-meter {
   width: 120px;
   height: 10px;

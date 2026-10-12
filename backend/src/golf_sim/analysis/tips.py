@@ -47,6 +47,18 @@ _TIP_RULES: dict[str, tuple[str, str]] = {
         "Your backswing is slow relative to a punchy downswing, which often means "
         "a rushed transition. Blend the change of direction more gradually.",
     ),
+    "backswing_time_s": (
+        "Your backswing is quicker than the target window. Let the takeaway build "
+        "smoothly so you arrive at the top balanced and ready to change direction.",
+        "Your backswing is taking longer than the target window. Keep it unhurried, "
+        "but use a continuous turn so the motion does not stall before transition.",
+    ),
+    "downswing_time_s": (
+        "Your downswing is quicker than the target window. Start down from the ground "
+        "up so the hips, torso and arms stay sequenced instead of rushing from the top.",
+        "Your downswing is taking longer than the target window. Keep accelerating "
+        "through impact rather than steering or decelerating into the ball.",
+    ),
     "hip_sway_top_pct": (
         "",  # low sway is fine; no tip
         "You're sliding sideways in the backswing rather than turning. Feel like "
@@ -105,6 +117,18 @@ _TIP_RULES: dict[str, tuple[str, str]] = {
         "makes the low point harder to control. Feel it stay comfortably extended "
         "(not locked) to the top.",
         "",  # a straight lead arm at the top is good
+    ),
+    "hand_speed_impact_ms": (
+        "Your hand speed through impact is below the target for this club. Build speed "
+        "through a balanced turn and sequence rather than forcing the hands from the top.",
+        "Your hand speed is above the target window. More speed is not inherently a "
+        "fault; check that contact stays controlled and that tracking quality is reliable.",
+    ),
+    "swing_plane_deg": (
+        "Your body-pose hand-path estimate is flatter than the target for this club. "
+        "Feel the hands travel a little more upward during the backswing.",
+        "Your body-pose hand-path estimate is steeper than the target for this club. "
+        "Feel the turn carry your hands a little more around you during the backswing.",
     ),
 }
 

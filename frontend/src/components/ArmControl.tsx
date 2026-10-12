@@ -60,7 +60,6 @@ export default function ArmControl({ captureReady, onCapture }: Props) {
       <select
         aria-label="Club"
         value={club}
-        disabled={status?.armed}
         onChange={async (e) => {
           const selected = e.target.value
           setClub(selected)
@@ -74,6 +73,11 @@ export default function ArmControl({ captureReady, onCapture }: Props) {
           </option>
         ))}
       </select>
+      {status?.armed && (
+        <span className="muted club-selection-hint">
+          Each swing saves this club; changes apply to the next capture.
+        </span>
+      )}
       {status?.armed ? (
         <button className="armed" onClick={call(api.disarm)}>
           ● armed — disarm

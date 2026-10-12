@@ -11,7 +11,7 @@ import pytest
 
 from golf_sim.analysis.metrics import compute_metrics
 from golf_sim.analysis.phases import detect_phases
-from golf_sim.config import MetricsConfig, ReferenceRange
+from golf_sim.config import MetricsConfig, ReferenceRange, load_config
 from golf_sim.trc import LandmarkSequence
 
 FPS = 60.0
@@ -22,6 +22,27 @@ FOLLOW_FRAMES = 20
 SHOULDER_TURN = 90.0
 HIP_TURN = 45.0
 SPINE_TILT = np.degrees(np.arctan2(0.2, 0.4))  # ~26.57 deg
+EXPECTED_METRICS = {
+    "shoulder_turn_deg",
+    "hip_turn_deg",
+    "x_factor_deg",
+    "spine_tilt_deg",
+    "tempo_ratio",
+    "hip_sway_top_pct",
+    "hip_sway_impact_pct",
+    "hip_rotation_impact_deg",
+    "backswing_time_s",
+    "downswing_time_s",
+    "shoulder_tilt_impact_deg",
+    "spine_angle_change_deg",
+    "head_movement_cm",
+    "early_extension_cm",
+    "reverse_spine_deg",
+    "knee_flex_deg",
+    "lead_arm_deg",
+    "hand_speed_impact_ms",
+    "swing_plane_deg",
+}
 
 
 def _rot(width: float, angle_deg: float) -> tuple[np.ndarray, np.ndarray]:
@@ -57,8 +78,12 @@ def synthetic_swing(shoulder_turn=SHOULDER_TURN, hip_turn=HIP_TURN) -> LandmarkS
         "LAnkle",
         "RShoulder",
         "LShoulder",
+        "RElbow",
+        "LElbow",
         "RWrist",
         "LWrist",
+        "RKnee",
+        "LKnee",
     ]
     coords = np.zeros((n, len(marker_names), 3))
     idx = {name: i for i, name in enumerate(marker_names)}
@@ -80,6 +105,10 @@ def synthetic_swing(shoulder_turn=SHOULDER_TURN, hip_turn=HIP_TURN) -> LandmarkS
         hands = np.array([0.3, 0.3 * progress[f], hand_height[f]])
         coords[f, idx["RWrist"]] = hands
         coords[f, idx["LWrist"]] = hands
+        coords[f, idx["RElbow"]] = (coords[f, idx["RShoulder"]] + hands) / 2
+        coords[f, idx["LElbow"]] = (coords[f, idx["LShoulder"]] + hands) / 2
+        coords[f, idx["RKnee"]] = np.array([0.2, 0.0, 0.55])
+        coords[f, idx["LKnee"]] = np.array([-0.2, 0.0, 0.55])
 
     return LandmarkSequence(marker_names=marker_names, times=times, coords=coords)
 
@@ -186,3 +215,14 @@ def test_extended_metrics_present_and_sane():
     # Speed and plane are finite and positive for a real motion.
     assert by_name["hand_speed_impact_ms"].value > 0
     assert np.isfinite(by_name["swing_plane_deg"].value)
+
+
+def test_shipped_config_ranges_every_finite_metric():
+    report = compute_metrics(synthetic_swing(), load_config().metrics, club="driver")
+
+    assert {metric.name for metric in report.metrics} == EXPECTED_METRICS
+    for metric in report.metrics:
+        if np.isfinite(metric.value):
+            assert metric.range_min is not None, metric.name
+            assert metric.range_max is not None, metric.name
+            assert metric.in_range is not None, metric.name

@@ -103,6 +103,9 @@ metrics:
     spine_tilt_deg: {min: 25, max: 40}
     x_factor_deg: {min: 30, max: 45}
     tempo_ratio: {min: 2.8, max: 3.2}
+    # Phase durations behind the tempo ratio (seconds).
+    backswing_time_s: {min: 0.7, max: 0.9}
+    downswing_time_s: {min: 0.2, max: 0.3}
     # Lateral hip sway as % of stance width, relative to address.
     hip_sway_top_pct: {min: 0, max: 30}
     hip_sway_impact_pct: {min: 0, max: 40}
@@ -117,6 +120,9 @@ metrics:
     # Body angles
     knee_flex_deg: {min: 145, max: 172}
     lead_arm_deg: {min: 160, max: 180}
+    # Body-pose proxies. Club profiles below refine these broad fallbacks.
+    hand_speed_impact_ms: {min: 4, max: 14}
+    swing_plane_deg: {min: 42, max: 68}
   # Club length changes address posture and the size of the turn. These
   # profiles override only club-dependent metrics; tempo, X-factor and sway
   # continue to use the shared ranges above.
@@ -125,26 +131,38 @@ metrics:
       shoulder_turn_deg: {min: 85, max: 105}
       hip_turn_deg: {min: 40, max: 55}
       spine_tilt_deg: {min: 20, max: 35}
+      hand_speed_impact_ms: {min: 8, max: 14}
+      swing_plane_deg: {min: 40, max: 55}
     fairway_wood:
       shoulder_turn_deg: {min: 82, max: 102}
       hip_turn_deg: {min: 38, max: 53}
       spine_tilt_deg: {min: 22, max: 37}
+      hand_speed_impact_ms: {min: 7, max: 13}
+      swing_plane_deg: {min: 42, max: 57}
     long_iron:
       shoulder_turn_deg: {min: 80, max: 100}
       hip_turn_deg: {min: 37, max: 52}
       spine_tilt_deg: {min: 25, max: 40}
+      hand_speed_impact_ms: {min: 6, max: 12}
+      swing_plane_deg: {min: 45, max: 60}
     mid_iron:
       shoulder_turn_deg: {min: 78, max: 98}
       hip_turn_deg: {min: 35, max: 50}
       spine_tilt_deg: {min: 28, max: 43}
+      hand_speed_impact_ms: {min: 5, max: 11}
+      swing_plane_deg: {min: 48, max: 63}
     short_iron:
       shoulder_turn_deg: {min: 75, max: 95}
       hip_turn_deg: {min: 32, max: 48}
       spine_tilt_deg: {min: 32, max: 47}
+      hand_speed_impact_ms: {min: 4, max: 10}
+      swing_plane_deg: {min: 50, max: 65}
     wedge:
       shoulder_turn_deg: {min: 70, max: 90}
       hip_turn_deg: {min: 30, max: 45}
       spine_tilt_deg: {min: 35, max: 50}
+      hand_speed_impact_ms: {min: 3, max: 9}
+      swing_plane_deg: {min: 52, max: 68}
   club_profile_mapping:
     driver: driver
     3_wood: fairway_wood

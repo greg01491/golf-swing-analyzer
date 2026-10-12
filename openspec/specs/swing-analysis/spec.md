@@ -136,8 +136,14 @@ landmark sequence.
 
 - **WHEN** metrics are computed
 - **THEN** exactly these are produced: `shoulder_turn_deg`, `hip_turn_deg`,
-  `x_factor_deg`, `spine_tilt_deg` (all in degrees), `tempo_ratio` (a ratio),
-  `hip_sway_top_pct` and `hip_sway_impact_pct` (both as a percentage of stance width)
+  `x_factor_deg`, `spine_tilt_deg`, `tempo_ratio`, `hip_sway_top_pct`,
+  `hip_sway_impact_pct`, `hip_rotation_impact_deg`, `backswing_time_s`,
+  `downswing_time_s`, `shoulder_tilt_impact_deg`, `spine_angle_change_deg`,
+  `head_movement_cm`, `early_extension_cm`, `reverse_spine_deg`, `knee_flex_deg`,
+  `lead_arm_deg`, `hand_speed_impact_ms` and `swing_plane_deg`
+- **AND** each metric carries its explicit unit
+- **AND** `swing_plane_deg` is identified as a body-pose hand-path proxy rather than a
+  measurement of the club shaft
 
 #### Scenario: Turn metrics are peak backswing values
 
@@ -167,8 +173,17 @@ landmark sequence.
 
 ### Requirement: Club-Aware Reference Ranges
 
-The system SHALL compare each metric against reference ranges that account for the club
-used, and SHALL leave a metric unflagged when no range applies.
+The system SHALL compare each metric against configurable reference ranges that account
+for the club used, and the shipped configuration SHALL provide an applicable range for
+every finite displayed metric.
+
+#### Scenario: Default range coverage
+
+- **WHEN** the shipped configuration is used and a computed metric has a finite value
+- **THEN** the metric resolves to a reference range and an in-range verdict
+- **AND** `backswing_time_s` and `downswing_time_s` use shared timing ranges
+- **AND** `hand_speed_impact_ms` and the body-pose-derived `swing_plane_deg` may use
+  club-profile overrides
 
 #### Scenario: Club profile overrides shared ranges
 
@@ -184,7 +199,7 @@ used, and SHALL leave a metric unflagged when no range applies.
 
 #### Scenario: Metric with no configured range
 
-- **WHEN** no reference range is configured for a metric
+- **WHEN** a custom configuration has no applicable reference range for a metric
 - **THEN** the metric is still computed and reported, with its in-range verdict and
   range left null
 
@@ -196,7 +211,9 @@ used, and SHALL leave a metric unflagged when no range applies.
 
 ### Requirement: Coaching Tips
 
-The system SHALL turn out-of-range metrics into ranked, plain-English tips.
+The system SHALL turn out-of-range metrics into ranked, plain-English tips and SHALL
+provide direction-specific advice for each newly ranged timing, hand-speed, and
+swing-plane metric.
 
 #### Scenario: Only out-of-range metrics produce tips
 
@@ -208,8 +225,19 @@ The system SHALL turn out-of-range metrics into ranked, plain-English tips.
 - **WHEN** a metric falls below its range minimum
 - **THEN** the "too low" advice for that metric is used, and the "too high" advice is
   used when it exceeds the maximum
+- **AND** advice for `swing_plane_deg` states that the value is a body-pose hand-path
+  proxy
+- **AND** advice for `hand_speed_impact_ms` does not imply that more speed is inherently
+  a fault
 - **AND** a metric with no advice text for that direction, such as low hip sway,
   produces no tip
+
+#### Scenario: Newly ranged metric is outside its bounds
+
+- **WHEN** `backswing_time_s`, `downswing_time_s`, `hand_speed_impact_ms`, or
+  `swing_plane_deg` is below or above its applicable range
+- **THEN** that metric contributes direction-appropriate advice to the ranked tip
+  candidates
 
 #### Scenario: Ranking by normalised severity
 

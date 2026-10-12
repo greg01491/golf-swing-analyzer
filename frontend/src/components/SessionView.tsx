@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../api'
 import type { Landmarks, PPosition, SessionDetail } from '../api'
+import { allMeasuredMetricsInRange } from '../metricFeedback'
 import { METRIC_INFO, VIEW_LABELS, formatMetricName, type MetricView } from '../metricInfo'
 import PPositionPanel from './PPositionPanel'
 import Skeleton3D from './Skeleton3D'
@@ -281,6 +282,7 @@ export default function SessionView({ sessionId, onChanged, focusedMetric, onFoc
           onSelect={selectPosition}
           showIdeal={showIdeal}
           onToggleIdeal={setShowIdeal}
+          reliable={quality?.reliable !== false}
         />
       )}
 
@@ -553,7 +555,11 @@ export default function SessionView({ sessionId, onChanged, focusedMetric, onFoc
         <div className="panel">
           <h3>tips</h3>
           {metrics.tips.length === 0 ? (
-            <p>everything in range — nice swing.</p>
+            <p>
+              {allMeasuredMetricsInRange(metrics.metrics)
+                ? 'everything measured is in range — nice swing.'
+                : 'no actionable tips for this swing.'}
+            </p>
           ) : (
             <ol>
               {metrics.tips.map((tip) => (

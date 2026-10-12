@@ -7,6 +7,7 @@ import SessionView from './components/SessionView'
 import Settings from './components/Settings'
 import StatsView from './components/StatsView'
 import SystemCheck from './components/SystemCheck'
+import { allMeasuredMetricsInRange } from './metricFeedback'
 import './App.css'
 
 type View = 'sessions' | 'stats' | 'settings' | 'calibrate' | 'system-check'
@@ -63,7 +64,9 @@ function spokenFeedback(detail: SessionDetail, focusedMetric: string | null): st
     const tip = analysis.tips[0]
     return `The main issue is ${humanizeMetric(tip.metric)}. ${tip.text}`
   }
-  return 'Nice swing. Everything measured was in range.'
+  return allMeasuredMetricsInRange(analysis.metrics)
+    ? 'Nice swing. Everything measured was in range.'
+    : 'There are no actionable tips for this swing.'
 }
 
 export default function App() {

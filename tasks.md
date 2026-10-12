@@ -79,10 +79,10 @@
 - [ ] Clear the stale pre-rotation-fix captures via the new "clear all captures and start over" button, then redo camera_2's intrinsics captures and the extrinsics (practice-swing) capture, recompute via the wizard, and confirm `mean_reprojection_error_px` is reasonable (well under ~5px) — **needs your rig**; the existing `Calib_rig.toml` (~79,000px reprojection error) is unusable and was computed before the rotation fix
 
 ## Phase 5 — Swing Metrics Engine
-- [x] Finalize metric list: shoulder_turn_deg, hip_turn_deg, x_factor_deg, spine_tilt_deg (at address), tempo_ratio, hip_sway_top_pct + hip_sway_impact_pct (weight-transfer proxy, % of stance width). All angles reported as magnitudes → handedness-neutral
+- [x] Finalize the 19-metric list: shoulder_turn_deg, hip_turn_deg, x_factor_deg, spine_tilt_deg, tempo_ratio, hip_sway_top_pct, hip_sway_impact_pct, hip_rotation_impact_deg, backswing_time_s, downswing_time_s, shoulder_tilt_impact_deg, spine_angle_change_deg, head_movement_cm, early_extension_cm, reverse_spine_deg, knee_flex_deg, lead_arm_deg, hand_speed_impact_ms, and swing_plane_deg. All angles are magnitudes; swing_plane_deg is a body-pose hand-path proxy, not club tracking
 - [x] Implement each metric's computation from the 3D landmark sequence — `analysis/metrics.py`, built on a body-anchored reference frame (`analysis/frame_of_reference.py`) that infers the vertical axis from ankle→head separation, so nothing assumes which calibrated world axis is up or where the target line is
 - [x] Swing phase detection (address/top/impact) from the hand-midpoint trajectory — `analysis/phases.py`; relative-quantity heuristics only (fractions of peak speed, per-clip extrema) so it's invariant to units/frame rate/position
-- [x] Add configurable reference ranges per metric — config.yaml `metrics.reference_ranges`; metrics without a range are computed but never flagged
+- [x] Add configurable reference ranges for all 19 shipped metrics — config.yaml `metrics.reference_ranges`, with shared timing ranges and club-profile overrides for hand speed and the hand-path plane proxy; deliberately incomplete custom configurations still report omitted metrics as unranged
 - [x] Implement "flag out-of-range" logic
 - [x] Output a structured metrics report (JSON) per session — `python -m golf_sim.analysis.cli <session>|--latest` → `<session>/metrics.json`
 - [x] Write tests against known swings — synthetic swing generator with controlled ground truth (90° shoulder turn, 45° hip turn, 3:1 tempo, known spine tilt); computed metrics match within tolerance. Chain also smoke-tested on the demo session's real 3D data: runs end-to-end, and correctly flags everything out-of-range since the demo subject isn't swinging a golf club
@@ -99,9 +99,10 @@ Not in the original spec; added per request (2026-07-19).
 - [ ] Real-swing validation of the P-position proxies and target-angle fractions — **needs actual swing captures from your rig**; only validated against synthetic data with known ground truth so far
 
 ## Phase 6 — Tips Engine
-- [x] Define rule set mapping flagged metrics → candidate tip text — `analysis/tips.py`: per-metric too-low/too-high wording; low hip-sway deliberately has no tip (it isn't a fault)
+- [x] Define rule set mapping flagged metrics → candidate tip text — `analysis/tips.py`: per-metric too-low/too-high wording, including both directions for timing, hand speed, and the qualified hand-path plane proxy; low hip-sway deliberately has no tip (it isn't a fault)
 - [x] Implement tip selection/prioritization — severity = deviation normalized by reference-range width, ranked, top-3 (configurable via `max_tips` arg)
 - [x] Output ranked tips list per session — included in `metrics.json` (`tips` array) and the analysis CLI printout
+- [x] Derive visual, spoken, and CLI empty-state summaries from metric verdicts: claim everything is in range only when every measured metric is explicitly in range; otherwise report no actionable tips
 - [ ] Review tip wording for clarity/usefulness (manual pass) — **your call, Greg**: read the tip texts in `backend/src/golf_sim/analysis/tips.py` and edit any wording that doesn't sound like advice you'd actually want
 
 ## Phase 7 — Review UI

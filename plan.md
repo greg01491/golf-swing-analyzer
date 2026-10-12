@@ -48,15 +48,16 @@ Deliver a working local pipeline: mic-triggered dual-camera capture → 3D pose 
 - **Exit criteria:** a captured swing produces a 3D landmark sequence that visibly matches the recorded motion when plotted/played back, **and** a real-footage check confirms the down-the-line + face-on pair isn't losing key joints to self-occlusion during the swing (OQ4) — if it is, revisit rig angle before locking it in.
 
 ### Phase 5 — Swing Metrics Engine
-- Define the finalized metric list (e.g. shoulder turn, hip turn, spine tilt, X-factor, tempo ratio, weight transfer proxy) and how each is computed from the 3D landmark sequence.
+- Define the finalized 19-metric list: turn/tilt/separation, tempo and phase durations, sway/rotation, posture/stability, body angles, hand-speed proxy, and body-pose hand-path plane proxy.
 - Implement metric computation over the swing window.
-- Add configurable "reference ranges" per metric.
-- **Exit criteria:** given a 3D landmark sequence, output a metrics report (numbers + in/out-of-range flags).
+- Add configurable reference ranges for every shipped metric, with club-profile overrides for club-dependent values.
+- **Exit criteria:** given a 3D landmark sequence, output a metrics report in which every finite metric has a target range and in/out-of-range flag.
 
 ### Phase 6 — Tips Engine
-- Rule-based mapping from flagged metrics → plain-English tips (start simple/rule-based; leave room for a smarter model later).
+- Rule-based mapping from flagged metrics → direction-specific plain-English tips, including timing, hand-speed, and qualified body-pose hand-path advice (start simple/rule-based; leave room for a smarter model later).
 - Select/prioritize top N tips per swing.
-- **Exit criteria:** given a metrics report, output a ranked list of tips.
+- Distinguish "no actionable tips" from the stronger claim that every measured metric is in range.
+- **Exit criteria:** given a metrics report, output a ranked list of tips and a truthful empty-state summary.
 
 ### Phase 7 — Review UI
 - Session browser (list of past swings).

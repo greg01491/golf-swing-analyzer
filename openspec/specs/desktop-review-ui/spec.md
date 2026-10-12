@@ -106,6 +106,16 @@ club, from the main screen.
 - **THEN** the UI surfaces the backend's "select a club before capturing" error rather
   than silently discarding the swing
 
+#### Scenario: Club changes apply to the next capture while armed
+
+- **WHEN** the golfer selects a different club while capture is armed
+- **THEN** the selector remains enabled and the selected club is updated
+- **AND** the next triggered session records the newly selected club
+- **AND** sessions already captured retain the club recorded when their trigger was
+  received
+- **AND** the UI explains that club selection is saved per capture and a change applies
+  to the next swing
+
 #### Scenario: Manual trigger
 
 - **WHEN** the golfer presses the manual capture control
@@ -149,11 +159,30 @@ The system SHALL present each captured swing with its videos and analysis result
   position of the others
 - **AND** the preference persists across app restarts
 
-#### Scenario: Shared slow-motion control
+### Requirement: Shared slow-motion control
 
-- **WHEN** the golfer adjusts the slow-motion control in multi-camera review mode
-- **THEN** every camera view's playback rate changes together, from 0% (paused) to
-  100% (normal speed)
+The system SHALL initialize the shared playback rate from the review view's current session state in multi-camera and Pro view and SHALL allow the golfer to change it repeatedly without crashing or desynchronizing the camera views.
+
+#### Scenario: Session playback rate is restored safely
+
+- **WHEN** a session is opened in multi-camera review mode or Pro view
+- **THEN** the UI applies the session's current playback rate once the video elements are ready
+- **AND** the rate is clamped to the supported range from 0% (paused) through 100% (normal speed)
+- **AND** an absent or invalid stored rate falls back to 100%
+
+#### Scenario: Slow-motion rate changes do not crash
+
+- **WHEN** the golfer changes the slow-motion control before, during, or immediately after video loading
+- **THEN** every available camera view in multi-camera review mode or Pro view receives the bounded playback rate
+- **AND** views that are not yet ready are updated when they become ready
+- **AND** missing or disposed video elements are skipped without throwing
+- **AND** the playback position and synchronized-view state remain valid
+
+#### Scenario: Repeated rate changes remain synchronized
+
+- **WHEN** the golfer changes the rate multiple times, including pause and normal speed
+- **THEN** all ready camera views in multi-camera review mode or Pro view converge on the latest selected rate
+- **AND** changing the rate does not recreate the media elements or reset the selected session
 
 ### Requirement: Swing Plane Reference Line
 
@@ -252,6 +281,61 @@ The system SHALL let the golfer step through the detected P-System checkpoints.
 - **THEN** each detected checkpoint is listed with its name and label
 - **AND** selecting one moves the review position to that checkpoint's time
 
+### Requirement: P-Position Reliability Gate
+
+The system SHALL not let the golfer seek to estimated P-System checkpoints when tracking
+quality marks the reconstruction unreliable.
+
+#### Scenario: Checkpoints are unreliable
+
+- **WHEN** session tracking quality is marked unreliable
+- **THEN** the P-position panel explains that checkpoint frames may be inaccurate
+- **AND** checkpoint navigation controls are disabled
+- **AND** video playback remains available for manual review
+
+#### Scenario: Checkpoints are eligible for review
+
+- **WHEN** session tracking quality is reliable or no quality verdict is available
+- **THEN** checkpoint navigation remains available as before
+
+### Requirement: Complete Metric Target Presentation
+
+The system SHALL present every finite metric with its applicable target range and SHALL
+describe the absence of coaching tips without overstating the result.
+
+#### Scenario: Session metric has an applicable range
+
+- **WHEN** a processed session reports a finite metric with an applicable reference range
+- **THEN** session review shows its value, unit, range, and in-range or out-of-range
+  state
+- **AND** the metric is visually distinguished when it is outside the range
+
+#### Scenario: Stats metric has an applicable range
+
+- **WHEN** a finite metric is plotted in stats over time
+- **THEN** its chart shows the applicable target range as a labelled shaded band
+- **AND** each point reflects that session's in-range or out-of-range verdict
+
+#### Scenario: Metric is unavailable or explicitly unranged
+
+- **WHEN** a metric is unmeasurable or a custom configuration has no applicable range
+- **THEN** the UI identifies the missing value or target state instead of presenting it
+  as in range
+
+#### Scenario: No coaching tips are generated
+
+- **WHEN** a processed swing has no generated coaching tips
+- **THEN** visual and spoken summaries say that there are no actionable tips
+- **AND** they claim that everything measured is in range only when every finite ranged
+  metric is actually in range
+
+#### Scenario: Newly ranged metric is outside its bounds
+
+- **WHEN** `backswing_time_s`, `downswing_time_s`, `hand_speed_impact_ms`, or
+  `swing_plane_deg` is outside its applicable range and its advice is selected within
+  the top-three limit
+- **THEN** the corresponding coaching tip is shown and is eligible to be spoken
+
 ### Requirement: Spoken Feedback
 
 The system SHALL be able to speak a swing's feedback aloud so the golfer does not have
@@ -272,8 +356,10 @@ to walk to the screen between shots.
 #### Scenario: Default feedback
 
 - **WHEN** no metric is focused
-- **THEN** the most severe tip is spoken, or a "nice swing, everything measured was in
-  range" message when there are no tips
+- **THEN** the most severe tip is spoken when one exists
+- **AND** when no tips exist, a "nice swing, everything measured was in range" message
+  is spoken only if every finite ranged metric is actually in range
+- **AND** otherwise the spoken summary says there are no actionable tips
 
 #### Scenario: Voice can be turned off
 

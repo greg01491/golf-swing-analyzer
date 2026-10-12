@@ -115,6 +115,23 @@ def test_club_must_be_selected_and_is_exposed_in_capture_status(client):
     assert client.get("/api/capture/status").json()["selected_club"] == "7_iron"
 
 
+def test_club_can_change_while_armed_and_is_saved_on_next_capture(client):
+    client.put("/api/capture/club", json={"club": "7_iron"})
+    assert client.post("/api/capture/arm").status_code == 200
+
+    response = client.put("/api/capture/club", json={"club": "driver"})
+
+    assert response.status_code == 200
+    status = client.get("/api/capture/status").json()
+    assert status["armed"] is True
+    assert status["selected_club"] == "driver"
+
+    assert client.post("/api/capture/trigger").status_code == 200
+    capture = _wait_for_capture(client)
+    detail = client.get(f"/api/sessions/{capture['last_session']}").json()
+    assert detail["metadata"]["club"] == "driver"
+
+
 def test_sessions_listing_and_detail(client, config):
     _fake_session(config)
 
@@ -286,13 +303,29 @@ def test_stats_aggregates_metrics_oldest_first(client, config):
     (root / "20260102T000000Z-b" / "metadata.json").write_text(
         json.dumps({"created_at": "2026-01-02T00:00:00+00:00"})
     )
-    metric = {"name": "hip_turn_deg", "value": 42.0, "unit": "deg", "in_range": True, "range": None}
-    (root / "20260101T000000Z-a" / "metrics.json").write_text(json.dumps({"metrics": [metric]}))
-    (root / "20260102T000000Z-b" / "metrics.json").write_text(json.dumps({"metrics": [metric]}))
+    metric = {
+        "name": "swing_plane_deg",
+        "value": 72.0,
+        "unit": "deg",
+        "in_range": False,
+        "range": {"min": 42, "max": 68},
+    }
+    tip = {
+        "metric": "swing_plane_deg",
+        "direction": "high",
+        "severity": 0.154,
+        "text": "Your body-pose hand-path estimate is steeper than the target.",
+    }
+    payload = {"metrics": [metric], "tips": [tip]}
+    (root / "20260101T000000Z-a" / "metrics.json").write_text(json.dumps(payload))
+    (root / "20260102T000000Z-b" / "metrics.json").write_text(json.dumps(payload))
 
     stats = client.get("/api/stats").json()
     assert [s["id"] for s in stats] == ["20260101T000000Z-a", "20260102T000000Z-b"]
-    assert stats[0]["metrics"][0]["name"] == "hip_turn_deg"
+    assert stats[0]["metrics"][0] == metric
+
+    detail = client.get("/api/sessions/20260101T000000Z-a").json()
+    assert detail["metrics"]["tips"] == [tip]
 
 
 def test_config_roundtrip_and_validation(client, tmp_path):
