@@ -311,24 +311,29 @@ The system SHALL let the golfer step through the detected P-System checkpoints.
 - **THEN** each detected checkpoint is listed with its name and label
 - **AND** selecting one moves the review position to that checkpoint's time
 
-### Requirement: P-Position Proxy Availability
+### Requirement: P-Position Proxy Estimates
 
-The system SHALL distinguish detected P-position checkpoints from estimates whose
-body-pose proxy target was not observed.
+The system SHALL distinguish detected P-position checkpoints from phase-progress
+estimates and unavailable checkpoints.
 
-#### Scenario: Proxy checkpoint is unavailable
+#### Scenario: Proxy target is missed but phase moves
 
-- **WHEN** a P-position is marked unavailable because its proxy target was not crossed
-- **THEN** its entry remains visible with its checkpoint name and label
-- **AND** the entry is visibly marked as not detected and cannot be selected to seek the
-  video
+- **WHEN** a proxy target is not crossed but its phase has measurable progress
+- **THEN** the entry remains selectable at the phase-progress estimate
+- **AND** the UI clearly marks it as estimated rather than detected
+
+#### Scenario: Proxy phase is degenerate
+
+- **WHEN** a proxy target is not crossed and its phase has no meaningful progress
+- **THEN** the entry remains visible with its checkpoint name and label
+- **AND** the UI marks it unavailable and prevents seeking from that entry
 - **AND** other available checkpoints remain selectable
 
-#### Scenario: Proxy checkpoint was detected
+#### Scenario: Estimated checkpoint selection
 
-- **WHEN** a P-position proxy target was observed and session tracking quality permits
+- **WHEN** an estimated P-position is selected and session tracking quality permits
   checkpoint review
-- **THEN** the checkpoint remains selectable and seeks video to its detected frame
+- **THEN** playback seeks to its estimated frame and the UI retains the estimated label
 
 ### Requirement: P-Position Reliability Gate
 

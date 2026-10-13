@@ -14,8 +14,8 @@
 - [x] 3.1 Re-evaluate the latest 7-iron session in memory with updated workspace code, without overwriting saved analysis; verify 0.6-only wrist drops are advisories and below-0.3 coverage remains blocking.
 - [x] 3.2 Run the full backend test suite, Ruff, Black, frontend lint/build, and strict OpenSpec validation; verify no regressions.
 
-## 4. P-Position Proxy Validity
+## 4. P-Position Proxy Estimates
 
-- [x] 4.1 Mark proxy checkpoints unavailable when no target crossing is observed, while retaining their nearest frame only as a diagnostic estimate; verify a no-crossing P3 is never labelled detected.
-- [x] 4.2 Add availability/reason to serialized P-position entries and disable only unavailable entries in review; verify valid phase checkpoints remain selectable and unavailable entries cannot seek.
-- [x] 4.3 Re-evaluate session `2026-10-12_19-27-18_9ecfcf82` in memory and verify P1/P4/P7 retain their phase frames while address-like P2/P3 and other non-crossed proxies are unavailable; do not overwrite stored analysis.
+- [x] 4.1 Replace nearest-boundary proxy fallbacks with midpoint phase-progress estimates when the series changes meaningfully; verify no-crossing estimates are not labeled detected.
+- [x] 4.2 Serialize detected/estimated/unavailable status and keep estimated positions selectable but visibly labeled; verify degenerate positions cannot seek.
+- [x] 4.3 Re-evaluate session `2026-10-12_19-27-18_9ecfcf82` in memory and verify P1/P4/P7 retain phase frames, P3 moves to a mid-backswing estimate, and saved analysis is untouched.

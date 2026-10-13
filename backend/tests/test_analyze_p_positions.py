@@ -53,9 +53,12 @@ def test_analyze_session_writes_p_positions_with_ideal_frames(tmp_path, syntheti
             "frame_index",
             "time_s",
             "available",
+            "detected",
+            "estimate_reason",
             "unavailable_reason",
             "ideal_frame",
         }
         assert isinstance(p["available"], bool)
+        assert isinstance(p["detected"], bool)
         assert "LShoulder" in p["ideal_frame"]
         assert len(p["ideal_frame"]["LShoulder"]) == 3

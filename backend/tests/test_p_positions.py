@@ -102,7 +102,37 @@ def test_unobserved_proxy_crossing_is_not_marked_as_detected():
     by_name = {position.name: position for position in positions}
 
     assert by_name["P3"].available is False
-    assert by_name["P3"].unavailable_reason == "proxy target was not observed"
+    assert (
+        by_name["P3"].unavailable_reason
+        == "proxy target was not crossed and phase progress was not measurable"
+    )
     assert by_name["P1"].available is True
     assert by_name["P4"].available is True
     assert by_name["P7"].available is True
+
+
+def test_unobserved_proxy_uses_selectable_mid_phase_estimate():
+    from golf_sim.analysis.phases import SwingPhases
+    from golf_sim.trc import LandmarkSequence
+
+    names = ["Hip", "Head", "RAnkle", "LAnkle", "LShoulder", "LWrist", "RWrist"]
+    times = np.arange(20) / 60.0
+    coords = np.zeros((20, len(names), 3))
+    indices = {name: index for index, name in enumerate(names)}
+    coords[:, indices["Head"], 2] = 1.8
+    coords[:, indices["Hip"], 2] = 1.0
+    coords[:, indices["LShoulder"], 2] = 1.4
+    angles = np.radians(np.linspace(10, 70, len(times)))
+    coords[:, indices["LWrist"], 0] = np.cos(angles)
+    coords[:, indices["LWrist"], 2] = 1.4 + np.sin(angles)
+    coords[:, indices["RWrist"]] = coords[:, indices["LWrist"]]
+
+    seq = LandmarkSequence(marker_names=names, times=times, coords=coords)
+    phases = SwingPhases(address_frame=2, top_frame=16, impact_frame=18)
+    positions = detect_p_positions(seq, phases)
+    by_name = {position.name: position for position in positions}
+
+    assert by_name["P3"].available is True
+    assert by_name["P3"].detected is False
+    assert by_name["P3"].estimate_reason == "proxy target not crossed; phase-progress estimate used"
+    assert phases.address_frame + 3 < by_name["P3"].frame_index < phases.top_frame - 3

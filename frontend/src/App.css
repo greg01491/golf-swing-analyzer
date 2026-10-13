@@ -1238,6 +1238,11 @@ ol li {
   font-size: 9px;
 }
 
+.p-estimated {
+  color: var(--muted);
+  font-size: 9px;
+}
+
 .ideal-toggle {
   margin-top: 8px;
 }

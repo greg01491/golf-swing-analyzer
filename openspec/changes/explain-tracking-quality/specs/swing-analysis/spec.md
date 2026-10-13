@@ -8,7 +8,7 @@ The system SHALL detect the ten P-System checkpoints P1 through P10 from body po
 
 - **WHEN** P-positions are detected
 - **THEN** exactly ten checkpoint entries are returned, named P1–P10 and labelled Address, Takeaway, Halfway Back, Top of Backswing, Early Downswing, Pre-Impact, Impact, Release, Follow-Through and Finish
-- **AND** each entry carries its frame index, time in seconds, and whether its checkpoint was detected or is only an estimate
+- **AND** each entry carries its frame index, time in seconds, whether its checkpoint was detected or estimated, and whether it is available for review
 
 #### Scenario: Phase-derived checkpoints
 
@@ -39,8 +39,9 @@ The system SHALL detect the ten P-System checkpoints P1 through P10 from body po
 #### Scenario: Crossing search degrades gracefully
 
 - **WHEN** a proxy series never crosses its target within the search window
-- **THEN** the nearest frame may be retained as an estimate for diagnostics
-- **AND** the checkpoint is marked unavailable for review rather than represented as a detected checkpoint
+- **THEN** if the proxy changes meaningfully across the phase, the frame nearest the midpoint of its start and end values is retained as a phase-progress estimate
+- **AND** the checkpoint is marked estimated rather than detected
+- **AND** if the proxy has no meaningful phase change, the nearest frame may be retained for diagnostics but the checkpoint is marked unavailable for review
 
 ### Requirement: Tracking Quality Gate
 

@@ -19,6 +19,9 @@ export default function PPositionPanel({
 }: Props) {
   const current = positions.find((p) => p.name === selected)
   const unavailableCount = positions.filter((position) => position.available === false).length
+  const estimatedCount = positions.filter(
+    (position) => position.available !== false && position.detected === false,
+  ).length
 
   return (
     <div className="panel">
@@ -39,18 +42,27 @@ export default function PPositionPanel({
           from the body-pose proxy and cannot be selected.
         </p>
       )}
+      {estimatedCount > 0 && (
+        <p className="muted" role="status">
+          {estimatedCount} checkpoint{estimatedCount === 1 ? ' uses' : 's use'} a phase-progress
+          estimate because the proxy target wasn’t crossed.
+        </p>
+      )}
       <div className="p-position-strip">
         {positions.map((p) => (
           <button
             key={p.name}
             className={p.name === selected ? 'active' : ''}
             disabled={!reliable || p.available === false}
-            title={p.unavailable_reason ?? undefined}
+            title={p.unavailable_reason ?? p.estimate_reason ?? undefined}
             onClick={() => onSelect(p)}
           >
             <span className="p-name">{p.name}</span>
             <span className="p-label">{p.label}</span>
             {p.available === false && <span className="p-unavailable">not detected</span>}
+            {p.available !== false && p.detected === false && (
+              <span className="p-estimated">estimated</span>
+            )}
           </button>
         ))}
       </div>

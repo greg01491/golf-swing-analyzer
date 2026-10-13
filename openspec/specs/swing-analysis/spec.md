@@ -128,9 +128,11 @@ SHALL identify proxy checkpoints whose target crossing was not observed.
 
 - **WHEN** a proxy series never actually crosses its target value within the search
   window
-- **THEN** the frame closest to that value may be retained as an estimate for diagnostics
-- **AND** the checkpoint is marked unavailable for review rather than represented as a
-  detected checkpoint
+- **THEN** if the proxy changes meaningfully across the phase, the frame nearest the
+  midpoint of its start and end values is retained as a phase-progress estimate
+- **AND** the checkpoint is marked estimated rather than detected
+- **AND** if the phase has no meaningful progress, the nearest frame may be retained for
+  diagnostics but the checkpoint is marked unavailable for review
 
 ### Requirement: Swing Metrics
 

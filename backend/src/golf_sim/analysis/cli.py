@@ -44,6 +44,8 @@ def _p_positions_payload(seq, report, config, club: Club | None = None) -> list[
             "frame_index": p.frame_index,
             "time_s": round(p.time_s, 4),
             "available": p.available,
+            "detected": p.detected,
+            "estimate_reason": p.estimate_reason,
             "unavailable_reason": p.unavailable_reason,
             "ideal_frame": {
                 marker: [round(float(c), 4) for c in xyz]
