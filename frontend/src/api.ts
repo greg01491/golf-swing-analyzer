@@ -44,6 +44,8 @@ export interface PPosition {
   label: string
   frame_index: number
   time_s: number
+  available?: boolean
+  unavailable_reason?: string | null
   ideal_frame: Record<string, [number, number, number]>
 }
 

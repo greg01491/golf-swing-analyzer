@@ -30,6 +30,8 @@ The latest 7-iron sample has 52.2% moving steps over the full clip but 73.9% bet
 
 4. **Keep the quality result additive and distinguish advisories.** Preserve `moving_fraction`, `hand_vertical_range_m`, `reliable`, and `warnings`; add `swing_moving_fraction`, per-threshold `camera_wrist_visibility`, and `advisories`. Advisory-only sessions remain reliable for checkpoint navigation, while blocking warnings still disable it. Existing clients can ignore the new fields. Alternatives considered: treating every confidence advisory as unreliable overstates risk; omitting advisories hides camera conditions that can still affect precision.
 
+5. **Keep nearest-frame proxy fallbacks diagnostic, not selectable.** Preserve the closest frame when a target crossing is absent so analysis remains inspectable, but mark that position unavailable for navigation. If strict-order correction changes a frame, mark that entry as an estimate too. P1/P4/P7 phase anchors and P10's post-impact peak remain directly available. Alternatives considered: silently presenting the nearest frame as detected produces the observed address-as-P3 error; copying one wrist onto the other would distort real lead-arm geometry.
+
 ## Risks / Trade-offs
 
 - [Risk] Address/impact phase errors can skew the quality interval. -> Mitigation: retain the whole-clip measure, require valid bounds, and fall back when bounds are unavailable.

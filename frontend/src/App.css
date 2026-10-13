@@ -1233,6 +1233,11 @@ ol li {
   line-height: 1.2;
 }
 
+.p-unavailable {
+  color: var(--warning-text);
+  font-size: 9px;
+}
+
 .ideal-toggle {
   margin-top: 8px;
 }

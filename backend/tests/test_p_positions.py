@@ -32,6 +32,9 @@ def test_p1_p4_p7_match_address_top_impact(synthetic_swing_full):
     assert by_name["P1"].frame_index == phases.address_frame
     assert by_name["P4"].frame_index == phases.top_frame
     assert by_name["P7"].frame_index == phases.impact_frame
+    assert by_name["P1"].available is True
+    assert by_name["P4"].available is True
+    assert by_name["P7"].available is True
     assert by_name["P1"].label == "Address"
     assert by_name["P4"].label == "Top of Backswing"
     assert by_name["P7"].label == "Impact"
@@ -76,3 +79,30 @@ def test_raises_reasonable_error_on_degenerate_input():
 
     with pytest.raises(PhaseDetectionError):
         detect_phases(seq)
+
+
+def test_unobserved_proxy_crossing_is_not_marked_as_detected():
+    from golf_sim.analysis.phases import SwingPhases
+    from golf_sim.trc import LandmarkSequence
+
+    names = ["Hip", "Head", "RAnkle", "LAnkle", "LShoulder", "LWrist", "RWrist"]
+    times = np.arange(20) / 60.0
+    coords = np.zeros((20, len(names), 3))
+    indices = {name: index for index, name in enumerate(names)}
+    coords[:, indices["Head"], 2] = 1.8
+    coords[:, indices["Hip"], 2] = 1.0
+    coords[:, indices["LShoulder"], 2] = 1.4
+    coords[:, indices["LWrist"], 0] = 1.0
+    coords[:, indices["LWrist"], 2] = 1.4 + np.tan(np.radians(10))
+    coords[:, indices["RWrist"]] = coords[:, indices["LWrist"]]
+
+    seq = LandmarkSequence(marker_names=names, times=times, coords=coords)
+    phases = SwingPhases(address_frame=2, top_frame=10, impact_frame=14)
+    positions = detect_p_positions(seq, phases)
+    by_name = {position.name: position for position in positions}
+
+    assert by_name["P3"].available is False
+    assert by_name["P3"].unavailable_reason == "proxy target was not observed"
+    assert by_name["P1"].available is True
+    assert by_name["P4"].available is True
+    assert by_name["P7"].available is True

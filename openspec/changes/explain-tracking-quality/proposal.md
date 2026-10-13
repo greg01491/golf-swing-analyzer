@@ -7,6 +7,8 @@ The current low-quality warning counts frozen hand positions across the whole cl
 - Measure hand-motion coverage within the detected address-to-impact swing window separately from whole-clip motion.
 - Report address-to-impact confidence/visibility for each camera's wrists, and identify weak camera/keypoint coverage in quality warnings.
 - Distinguish insufficient in-swing motion, weak camera/keypoint tracking, and physically implausible reconstructed scale; recommend recalibration only for the scale failure.
+- Stop presenting nearest-frame P-position proxy fallbacks as detected checkpoints when the expected geometric crossing never occurs.
+- Keep all ten checkpoint labels visible, but identify and disable only proxy checkpoints whose target was not observed.
 - Preserve the quality verdict and provide actionable diagnostics in the session review warning.
 - Add regression coverage for stationary clip tails, low in-swing motion, weak single-camera wrists, and implausible scale.
 
@@ -18,8 +20,8 @@ None.
 
 ### Modified Capabilities
 
-- `swing-analysis`: assess motion over the active swing, include per-camera wrist visibility diagnostics, and make warnings identify the evidence behind an unreliable verdict.
-- `desktop-review-ui`: present the specific quality causes and corrective guidance alongside low-confidence results.
+- `swing-analysis`: assess motion over the active swing, include per-camera wrist visibility diagnostics, and distinguish observed P-position crossings from nearest-frame estimates.
+- `desktop-review-ui`: present specific quality causes and corrective guidance, and prevent selecting P-position estimates whose proxies were not observed.
 
 ## Impact
 

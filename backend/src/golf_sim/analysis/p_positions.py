@@ -52,6 +52,8 @@ class PPosition:
     label: str
     frame_index: int
     time_s: float
+    available: bool = True
+    unavailable_reason: str | None = None
 
 
 def lead_markers(handedness: Handedness) -> tuple[str, str]:
@@ -76,21 +78,23 @@ def _closest_to_zero(series: np.ndarray, start: int, end: int) -> int:
     return lo + int(np.nanargmin(np.abs(series[lo : hi + 1])))
 
 
-def _find_crossing(series: np.ndarray, start: int, end: int) -> int:
+def _find_crossing(series: np.ndarray, start: int, end: int) -> tuple[int, bool]:
     """First zero-crossing of series within [start, end]; falls back to the
-    closest-to-zero frame if the series never actually crosses (tracking
-    noise, or a swing shape that doesn't pass exactly through the proxy
-    value in that window) -- this is a best-effort feature, not a hard gate."""
+    closest-to-zero frame for diagnostics when the series never actually
+    crosses. The fallback is not a detected checkpoint and must not be offered
+    for navigation as though the proxy target were observed."""
     lo, hi = min(start, end), max(start, end)
     if hi <= lo:
-        return lo
+        return lo, bool(np.isfinite(series[lo]) and series[lo] == 0)
     segment = series[lo : hi + 1]
     signs = np.sign(segment)
     for i in range(1, len(segment)):
-        if signs[i - 1] != 0 and signs[i] != 0 and signs[i - 1] != signs[i]:
+        if signs[i] == 0:
+            return lo + i, True
+        if signs[i - 1] != 0 and signs[i - 1] != signs[i]:
             a, b = lo + i - 1, lo + i
-            return a if abs(series[a]) < abs(series[b]) else b
-    return _closest_to_zero(series, lo, hi)
+            return (a if abs(series[a]) < abs(series[b]) else b), True
+    return _closest_to_zero(series, lo, hi), False
 
 
 def detect_p_positions(
@@ -107,11 +111,11 @@ def detect_p_positions(
     p4 = phases.top_frame
     p7 = phases.impact_frame
 
-    p3 = _find_crossing(elevation, p1, p4)
-    p2 = _find_crossing(hand_height - hip_height_ref, p1, p3)
+    p3, p3_crossed = _find_crossing(elevation, p1, p4)
+    p2, p2_crossed = _find_crossing(hand_height - hip_height_ref, p1, p3)
 
-    p5 = _find_crossing(elevation, p4, p7)
-    p6 = _find_crossing(hand_height - hip_height_ref, p5, p7)
+    p5, p5_crossed = _find_crossing(elevation, p4, p7)
+    p6, p6_crossed = _find_crossing(hand_height - hip_height_ref, p5, p7)
 
     # P10 (finish): peak hand height after impact, mirroring "top" on the
     # follow-through side; search the whole post-impact tail since P9 isn't
@@ -121,22 +125,57 @@ def detect_p_positions(
     else:
         p10 = p7 + int(np.nanargmax(hand_height[p7:]))
 
-    p9 = _find_crossing(elevation, p7, p10)
-    p8 = _find_crossing(hand_height - hip_height_ref, p7, p9)
+    p9, p9_crossed = _find_crossing(elevation, p7, p10)
+    p8, p8_crossed = _find_crossing(hand_height - hip_height_ref, p7, p9)
 
     frames = [p1, p2, p3, p4, p5, p6, p7, p8, p9, p10]
-    # The P-positions happen in strict time order (P1 before P2 before ... P10)
-    # -- that ordering is itself a constraint. These are windowed searches, so
-    # noise could nudge one out of sequence or collapse two onto the same
-    # frame; force each to be at least one frame after the previous (capped at
-    # the last frame) so no two checkpoints ever share a frame or jump
-    # backwards. Any pile-up at the cap is a genuinely too-short/degenerate
-    # tail, which the tracking-quality gate flags separately.
+    available = [
+        True,
+        p2_crossed and p3_crossed,
+        p3_crossed,
+        True,
+        p5_crossed and p6_crossed,
+        p5_crossed and p6_crossed,
+        True,
+        p8_crossed and p9_crossed,
+        p9_crossed,
+        True,
+    ]
+    # Reserve phase anchors so proxy estimates cannot move P4 or P7. Within
+    # each interval, clamp estimates to distinct interior frames and mark any
+    # estimate moved by the correction unavailable for review.
     last = seq.n_frames - 1
-    for i in range(1, len(frames)):
-        frames[i] = min(max(frames[i], frames[i - 1] + 1), last)
+    for start_index, end_index in ((0, 3), (3, 6), (6, 9)):
+        start_frame, end_frame = frames[start_index], min(frames[end_index], last)
+        required_gap = end_index - start_index
+        if end_frame - start_frame < required_gap:
+            for index in range(start_index + 1, end_index):
+                frames[index] = min(start_frame + index - start_index, last)
+                available[index] = False
+            available[end_index] = False
+            continue
+
+        previous = start_frame
+        for index in range(start_index + 1, end_index):
+            original = frames[index]
+            latest = end_frame - (end_index - index)
+            frames[index] = min(max(original, previous + 1), latest)
+            if frames[index] != original:
+                available[index] = False
+            previous = frames[index]
+
+    if frames[9] <= frames[8]:
+        available[9] = False
+        frames[9] = min(frames[8] + 1, last)
 
     return [
-        PPosition(name=name, label=label, frame_index=frame, time_s=float(seq.times[frame]))
-        for (name, label), frame in zip(_POSITIONS, frames, strict=True)
+        PPosition(
+            name=name,
+            label=label,
+            frame_index=frame,
+            time_s=float(seq.times[frame]),
+            available=was_detected,
+            unavailable_reason=None if was_detected else "proxy target was not observed",
+        )
+        for (name, label), frame, was_detected in zip(_POSITIONS, frames, available, strict=True)
     ]

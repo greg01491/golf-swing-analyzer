@@ -80,15 +80,17 @@ trajectory.
 ### Requirement: P-System Checkpoints
 
 The system SHALL detect the ten P-System checkpoints P1 through P10 from body pose
-alone, using documented geometric proxies for the club-based textbook definitions.
+alone, using documented geometric proxies for the club-based textbook definitions, and
+SHALL identify proxy checkpoints whose target crossing was not observed.
 
 #### Scenario: Checkpoints and labels
 
 - **WHEN** P-positions are detected
-- **THEN** exactly ten checkpoints are returned, named P1–P10 and labelled Address,
+- **THEN** exactly ten checkpoint entries are returned, named P1–P10 and labelled Address,
   Takeaway, Halfway Back, Top of Backswing, Early Downswing, Pre-Impact, Impact,
   Release, Follow-Through and Finish
-- **AND** each carries its frame index and time in seconds
+- **AND** each entry carries its frame index, time in seconds, and whether its checkpoint
+  was detected or is only an estimate
 
 #### Scenario: Phase-derived checkpoints
 
@@ -119,13 +121,16 @@ alone, using documented geometric proxies for the club-based textbook definition
   frame
 - **THEN** each checkpoint is forced to be at least one frame after the previous one,
   capped at the final frame, so no two checkpoints share a frame
+- **AND** a checkpoint moved by this correction is marked as an estimate rather than
+  detected
 
 #### Scenario: Crossing search degrades gracefully
 
 - **WHEN** a proxy series never actually crosses its target value within the search
   window
-- **THEN** the frame closest to that value is used, because checkpoints are best-effort
-  rather than a hard gate
+- **THEN** the frame closest to that value may be retained as an estimate for diagnostics
+- **AND** the checkpoint is marked unavailable for review rather than represented as a
+  detected checkpoint
 
 ### Requirement: Swing Metrics
 

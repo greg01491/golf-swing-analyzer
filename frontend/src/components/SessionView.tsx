@@ -85,6 +85,7 @@ export default function SessionView({ sessionId, onChanged, focusedMetric, onFoc
   }, [sessionId])
 
   const selectPosition = (position: PPosition) => {
+    if (position.available === false) return
     setSelectedPosition(position)
     for (const video of Object.values(videoRefs.current)) {
       if (video) {

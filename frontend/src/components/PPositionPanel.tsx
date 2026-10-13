@@ -18,6 +18,7 @@ export default function PPositionPanel({
   reliable,
 }: Props) {
   const current = positions.find((p) => p.name === selected)
+  const unavailableCount = positions.filter((position) => position.available === false).length
 
   return (
     <div className="panel">
@@ -32,16 +33,24 @@ export default function PPositionPanel({
           the wrong frames. Video playback is still available for manual review.
         </p>
       )}
+      {unavailableCount > 0 && (
+        <p className="muted" role="status">
+          {unavailableCount} checkpoint{unavailableCount === 1 ? ' was' : 's were'} not detected
+          from the body-pose proxy and cannot be selected.
+        </p>
+      )}
       <div className="p-position-strip">
         {positions.map((p) => (
           <button
             key={p.name}
             className={p.name === selected ? 'active' : ''}
-            disabled={!reliable}
+            disabled={!reliable || p.available === false}
+            title={p.unavailable_reason ?? undefined}
             onClick={() => onSelect(p)}
           >
             <span className="p-name">{p.name}</span>
             <span className="p-label">{p.label}</span>
+            {p.available === false && <span className="p-unavailable">not detected</span>}
           </button>
         ))}
       </div>

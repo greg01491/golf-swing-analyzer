@@ -47,6 +47,15 @@ def test_analyze_session_writes_p_positions_with_ideal_frames(tmp_path, syntheti
     assert "p_positions" in payload
     assert [p["name"] for p in payload["p_positions"]] == [f"P{i}" for i in range(1, 11)]
     for p in payload["p_positions"]:
-        assert set(p) >= {"name", "label", "frame_index", "time_s", "ideal_frame"}
+        assert set(p) >= {
+            "name",
+            "label",
+            "frame_index",
+            "time_s",
+            "available",
+            "unavailable_reason",
+            "ideal_frame",
+        }
+        assert isinstance(p["available"], bool)
         assert "LShoulder" in p["ideal_frame"]
         assert len(p["ideal_frame"]["LShoulder"]) == 3
