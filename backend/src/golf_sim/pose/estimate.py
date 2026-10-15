@@ -34,6 +34,7 @@ def run_pose_estimation(
         "pose": {
             "pose_model": pose_config.pose_model,
             "mode": pose_config.mode,
+            "parallel_workers_pose": pose_config.parallel_workers_pose,
             # headless: no live cv2 window (would block/crash off-desktop)
             "display_detection": False,
             "save_video": "to_video" if pose_config.save_debug_video else "none",

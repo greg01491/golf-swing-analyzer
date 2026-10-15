@@ -113,6 +113,14 @@ def test_corrupt_candidate_report_does_not_break_status(client, config):
     assert response.json()["last_candidate"]["status"] == "unverified"
 
 
+def test_pose_out_of_memory_has_actionable_processing_status():
+    from golf_sim.api.server import _describe
+
+    message = _describe(RuntimeError("OpenCV Insufficient memory; paging file is too small"))
+    assert "memory" in message.lower()
+    assert "sequential" in message.lower()
+
+
 def test_reconstruction_selection_checks_saved_observations_after_compatibility(client, config):
     from golf_sim.pose.calibration_bundle import camera_signatures, publish_bundle
 

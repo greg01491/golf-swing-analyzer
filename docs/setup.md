@@ -153,6 +153,11 @@ On a fresh installation, capture remains disabled until the startup readiness
 banner confirms that the pose engine and microphone are available and the
 two-camera calibration workflow has been completed.
 
+Pose inference defaults to one worker to limit peak memory while the high-frame-rate
+cameras continue buffering. Systems with sufficient memory may set
+`pose.parallel_workers_pose` to `2`. Slow-motion playback pauses at `0%`; nonzero rates
+are clamped to Chromium's supported minimum (`6.25%`).
+
 ### Development
 
 Use Node.js 24 for frontend development and `npm test`; the confidence/history tests

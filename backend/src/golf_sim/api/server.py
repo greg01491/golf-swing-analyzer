@@ -105,7 +105,24 @@ def _describe(exc: Exception) -> str:
     Some exceptions stringify to "" -- notably AssertionError, which reached
     the UI as a bare "failed to arm: " and told the user nothing.
     """
-    return str(exc).strip() or exc.__class__.__name__
+    message = str(exc).strip() or exc.__class__.__name__
+    normalized = message.casefold()
+    if any(
+        phrase in normalized
+        for phrase in (
+            "insufficient memory",
+            "out of memory",
+            "paging file is too small",
+            "cannot allocate memory",
+            "winerror 1455",
+        )
+    ):
+        return (
+            "Pose processing ran out of memory. The app now uses sequential camera inference; "
+            "close memory-heavy applications and reduce camera resolution or FPS if this repeats. "
+            f"System detail: {message}"
+        )
+    return message
 
 
 def apply_env_overrides(config: Config) -> Config:
@@ -274,7 +291,7 @@ def create_app(
                             # into an error.
                             logger.exception("post-processing failed for session %s", session_id)
                 except Exception as exc:
-                    processing[session_id] = f"error: {exc}"
+                    processing[session_id] = f"error: {_describe(exc)}"
                     logger.exception("processing failed for session %s", session_id)
 
         processing[session_id] = "running"

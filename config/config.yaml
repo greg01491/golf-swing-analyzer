@@ -74,6 +74,12 @@ pose:
   mode: balanced
   # Write an overlay video per camera (landmarks drawn on frames) for QA.
   save_debug_video: true
+  # Pose inference and 120fps capture/transcoding compete for system memory.
+  # Keep the default sequential; two workers can be enabled on larger systems.
+  parallel_workers_pose: 1
+  # Two parallel model workers increase peak memory while camera ring buffers
+  # remain resident. Keep inference sequential on memory-constrained systems.
+  parallel_workers_pose: 1
 
 calibration:
   # Directory holding the rig's calibration result (Calib*.toml, Pose2Sim

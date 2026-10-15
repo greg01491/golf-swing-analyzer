@@ -81,6 +81,8 @@ class PoseConfig(BaseModel):
     pose_model: str
     mode: str
     save_debug_video: bool
+    parallel_workers_pose: Literal[1, 2] = 1
+    parallel_workers_pose: Literal[1, 2] = 1
 
 
 class CalibrationValidationConfig(BaseModel):

@@ -9,6 +9,7 @@ import {
   metricSummary,
 } from '../metricFeedback'
 import { METRIC_INFO, VIEW_LABELS, formatMetricName, type MetricView } from '../metricInfo'
+import { clampPlaybackPercent, playbackRateForPercent } from '../playback'
 import PPositionPanel from './PPositionPanel'
 import Skeleton3D from './Skeleton3D'
 import SwingPlaneLine from './SwingPlaneLine'
@@ -26,16 +27,13 @@ const cameraLabel = (camera: string) => {
   return camera.replaceAll('_', ' ')
 }
 
-const clampPlaybackPercent = (value: number) =>
-  Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : 100
-
 const applyPlaybackRate = (video: HTMLVideoElement, percent: number) => {
   if (!video.isConnected) return
   if (percent <= 0) {
     video.pause()
     return
   }
-  video.playbackRate = Math.max(0.01, Math.min(1, percent / 100))
+  video.playbackRate = playbackRateForPercent(percent)
 }
 
 export default function SessionView({ sessionId, onChanged, focusedMetric, onFocusMetric }: Props) {
@@ -378,7 +376,7 @@ export default function SessionView({ sessionId, onChanged, focusedMetric, onFoc
                 type="range"
                 min={0}
                 max={100}
-                step={1}
+                step={0.25}
                 value={speed}
                 onChange={(e) => setSpeed(clampPlaybackPercent(Number(e.target.value)))}
               />
@@ -444,7 +442,7 @@ export default function SessionView({ sessionId, onChanged, focusedMetric, onFoc
                   type="range"
                   min={0}
                   max={100}
-                  step={1}
+                  step={0.25}
                   value={speed}
                   onChange={(e) => setSpeed(clampPlaybackPercent(Number(e.target.value)))}
                 />

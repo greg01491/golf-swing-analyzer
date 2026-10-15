@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from golf_sim.config import PoseConfig
 from golf_sim.pose.project import (
     _find_packaged_config,
     landmark_json_dirs,
@@ -105,6 +106,41 @@ def test_spec_keeps_pose2sim_demo_configs_out_of_the_media_filter():
 
     assert 'KEEP_DEMO_SUFFIXES = {".toml"}' in spec
     assert "Path(src).suffix.lower() not in KEEP_DEMO_SUFFIXES" in spec
+
+
+def test_pose_estimation_defaults_to_one_worker_and_forwards_override(monkeypatch, tmp_path):
+    from golf_sim.pose import estimate
+
+    module = types.ModuleType("Pose2Sim")
+    observed = []
+    module.Pose2Sim = types.SimpleNamespace(poseEstimation=lambda config: observed.append(config))
+    monkeypatch.setitem(sys.modules, "Pose2Sim", module)
+    project = tmp_path / "pose2sim"
+    monkeypatch.setattr(estimate, "prepare_pose_project", lambda _: project)
+    monkeypatch.setattr(estimate, "landmark_json_dirs", lambda _: [project / "camera_1_json"])
+    monkeypatch.setattr(estimate, "overlay_videos", lambda _: [])
+
+    estimate.run_pose_estimation(
+        tmp_path, PoseConfig(pose_model="Body_with_feet", mode="balanced", save_debug_video=False)
+    )
+    assert observed[-1]["pose"]["parallel_workers_pose"] == 1
+
+    estimate.run_pose_estimation(
+        tmp_path,
+        PoseConfig(
+            pose_model="Body_with_feet",
+            mode="balanced",
+            save_debug_video=False,
+            parallel_workers_pose=2,
+        ),
+    )
+    assert observed[-1]["pose"]["parallel_workers_pose"] == 2
+
+
+def test_pose_worker_default_is_sequential_in_config():
+    from golf_sim.config import load_config
+
+    assert load_config().pose.parallel_workers_pose == 1
 
 
 def test_output_helpers_find_pose_artifacts(tmp_path):
