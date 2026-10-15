@@ -25,7 +25,7 @@ from typing import Literal
 
 import numpy as np
 
-from golf_sim.analysis.frame_of_reference import vertical_axis
+from golf_sim.analysis.frame_of_reference import AnalysisReference, infer_reference
 from golf_sim.analysis.phases import SwingPhases, hands_midpoint
 from golf_sim.trc import LandmarkSequence
 
@@ -63,21 +63,26 @@ def lead_markers(handedness: Handedness) -> tuple[str, str]:
     return ("LShoulder", "LWrist") if handedness == "right" else ("RShoulder", "RWrist")
 
 
-def arm_elevation_series(seq: LandmarkSequence, shoulder: str, wrist: str) -> np.ndarray:
+def arm_elevation_series(
+    seq: LandmarkSequence, shoulder: str, wrist: str, reference: AnalysisReference | None = None
+) -> np.ndarray:
     """Per-frame angle (degrees) of the shoulder->wrist vector from
     horizontal: 0 = parallel to the ground, +90 = straight up, -90 = straight
     down."""
-    up_axis, up_sign = vertical_axis(seq)
-    horizontal_axes = [i for i in range(3) if i != up_axis]
+    reference = reference if reference is not None else infer_reference(seq)
+    if reference.up is None:
+        return np.full(seq.n_frames, np.nan)
     vec = seq.marker(wrist) - seq.marker(shoulder)
-    vertical = vec[:, up_axis] * up_sign
-    horizontal = np.linalg.norm(vec[:, horizontal_axes], axis=1)
+    vertical = vec @ reference.up
+    horizontal = np.linalg.norm(vec - vertical[:, None] * reference.up, axis=1)
     return np.degrees(np.arctan2(vertical, horizontal))
 
 
 def _closest_to_zero(series: np.ndarray, start: int, end: int) -> int:
     lo, hi = min(start, end), max(start, end)
-    return lo + int(np.nanargmin(np.abs(series[lo : hi + 1])))
+    segment = series[lo : hi + 1]
+    finite = np.flatnonzero(np.isfinite(segment))
+    return lo + int(finite[np.argmin(np.abs(segment[finite]))]) if finite.size else lo
 
 
 def _find_crossing(series: np.ndarray, start: int, end: int) -> tuple[int, bool]:
@@ -91,6 +96,8 @@ def _find_crossing(series: np.ndarray, start: int, end: int) -> tuple[int, bool]
     segment = series[lo : hi + 1]
     signs = np.sign(segment)
     for i in range(1, len(segment)):
+        if not np.isfinite(segment[i - 1 : i + 1]).all():
+            continue
         if signs[i] == 0:
             return lo + i, True
         if signs[i - 1] != 0 and signs[i - 1] != signs[i]:
@@ -125,14 +132,19 @@ def _proxy_checkpoint(series: np.ndarray, start: int, end: int) -> tuple[int, bo
 
 
 def detect_p_positions(
-    seq: LandmarkSequence, phases: SwingPhases, handedness: Handedness = "right"
+    seq: LandmarkSequence,
+    phases: SwingPhases,
+    handedness: Handedness = "right",
+    reference: AnalysisReference | None = None,
 ) -> list[PPosition]:
-    up_axis, up_sign = vertical_axis(seq)
+    reference = reference if reference is not None else infer_reference(seq, handedness)
+    if reference.up is None:
+        raise ValueError("checkpoint vertical reference is unavailable")
     shoulder, wrist = lead_markers(handedness)
 
-    hand_height = hands_midpoint(seq)[:, up_axis] * up_sign
-    hip_height_ref = float(seq.marker("Hip")[phases.address_frame, up_axis] * up_sign)
-    elevation = arm_elevation_series(seq, shoulder, wrist)
+    hand_height = hands_midpoint(seq) @ reference.up
+    hip_height_ref = float(seq.marker("Hip")[phases.address_frame] @ reference.up)
+    elevation = arm_elevation_series(seq, shoulder, wrist, reference)
 
     p1 = phases.address_frame
     p4 = phases.top_frame
@@ -148,7 +160,7 @@ def detect_p_positions(
     # P10 (finish): peak hand height after impact, mirroring "top" on the
     # follow-through side; search the whole post-impact tail since P9 isn't
     # known yet at this point.
-    if p7 >= seq.n_frames - 1:
+    if p7 >= seq.n_frames - 1 or not np.isfinite(hand_height[p7:]).any():
         p10 = p7
     else:
         p10 = p7 + int(np.nanargmax(hand_height[p7:]))

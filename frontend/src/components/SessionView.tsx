@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../api'
 import type { Landmarks, PPosition, SessionDetail } from '../api'
-import { allMeasuredMetricsInRange } from '../metricFeedback'
+import {
+  eligibleTips,
+  isValidatedMetric,
+  metricReason,
+  metricStatus,
+  metricSummary,
+} from '../metricFeedback'
 import { METRIC_INFO, VIEW_LABELS, formatMetricName, type MetricView } from '../metricInfo'
 import PPositionPanel from './PPositionPanel'
 import Skeleton3D from './Skeleton3D'
@@ -74,7 +80,10 @@ export default function SessionView({ sessionId, onChanged, focusedMetric, onFoc
       setGroupDraft((d.metadata?.group as string) ?? 'My Swings')
       if (d.cameras.length && !d.cameras.includes(camera)) setCamera(d.cameras[0])
     })
-    api.landmarks(sessionId).then(setLandmarks).catch(() => setLandmarks(null))
+    api
+      .landmarks(sessionId)
+      .then(setLandmarks)
+      .catch(() => setLandmarks(null))
     // reflect any in-progress/failed auto-processing kicked off at capture,
     // so the panel shows "processing…" or the error rather than a stale
     // "process swing" button (the video itself plays regardless)
@@ -123,7 +132,10 @@ export default function SessionView({ sessionId, onChanged, focusedMetric, onFoc
       setProcessState(status)
       if (status === 'done') {
         api.session(sessionId).then(setDetail)
-        api.landmarks(sessionId).then(setLandmarks).catch(() => setLandmarks(null))
+        api
+          .landmarks(sessionId)
+          .then(setLandmarks)
+          .catch(() => setLandmarks(null))
       }
     }, 500)
     return () => clearInterval(id)
@@ -201,15 +213,16 @@ export default function SessionView({ sessionId, onChanged, focusedMetric, onFoc
   if (!detail) return <div className="panel">loading…</div>
 
   const metrics = detail.metrics
+  const tips = metrics ? eligibleTips(metrics) : []
   const quality = metrics?.tracking_quality
   const ball = metrics?.ball
   const addressTime = metrics?.phases ? metrics.phases.address_frame / (landmarks?.fps ?? 1) : null
   const showBallMarker = Boolean(
     ball?.detected &&
-      ball.address_xy &&
-      ball.source_camera === camera &&
-      addressTime != null &&
-      Math.abs(time - addressTime) < 0.15,
+    ball.address_xy &&
+    ball.source_camera === camera &&
+    addressTime != null &&
+    Math.abs(time - addressTime) < 0.15,
   )
   const createdAt = detail.metadata?.created_at as string | undefined
   const club = (metrics?.club ?? detail.metadata?.club) as string | undefined
@@ -483,11 +496,13 @@ export default function SessionView({ sessionId, onChanged, focusedMetric, onFoc
                   <tbody>
                     {rows.map((m) => {
                       const info = METRIC_INFO[m.name]
+                      const validated = isValidatedMetric(m)
+                      const status = metricStatus(m)
                       return (
                         <tr
                           key={m.name}
                           className={[
-                            m.in_range === false ? 'flagged' : '',
+                            validated && m.in_range === false ? 'flagged' : '',
                             focusedMetric === m.name ? 'voice-focused' : '',
                           ].join(' ')}
                         >
@@ -515,18 +530,27 @@ export default function SessionView({ sessionId, onChanged, focusedMetric, onFoc
                           </td>
                           <td
                             className={
-                              m.in_range === true
+                              validated && m.in_range === true
                                 ? 'metric-value in-range'
-                                : m.in_range === false
+                                : validated && m.in_range === false
                                   ? 'metric-value out-range'
                                   : 'metric-value'
                             }
                           >
-                            {m.value === null ? '—' : `${m.value} ${m.unit}`}
+                            {status === 'unavailable' || m.value === null
+                              ? 'unavailable'
+                              : `${m.value} ${m.unit}`}
+                            {!validated && <small className="muted"> {status}</small>}
                           </td>
                           <td>
-                            {m.in_range === null ? '' : m.in_range ? 'OK' : 'out of range'}
-                            {m.range ? ` (${m.range.min}–${m.range.max})` : ''}
+                            {validated
+                              ? m.in_range === null
+                                ? 'no compatible target'
+                                : m.in_range
+                                  ? 'OK'
+                                  : 'out of range'
+                              : metricReason(m)}
+                            {validated && m.range ? ` (${m.range.min}–${m.range.max})` : ''}
                           </td>
                         </tr>
                       )
@@ -557,7 +581,8 @@ export default function SessionView({ sessionId, onChanged, focusedMetric, onFoc
         <div className="panel">
           <strong>ball tracking</strong>
           <p className="muted">
-            Ball detected at address {ball.address_xy ? `(${ball.address_xy[0]}, ${ball.address_xy[1]})` : ''}
+            Ball detected at address{' '}
+            {ball.address_xy ? `(${ball.address_xy[0]}, ${ball.address_xy[1]})` : ''}
             {ball.radius != null ? `, radius ${ball.radius}` : ''}
             {ball.source_camera ? ` from ${ball.source_camera}` : ''}. Impact is{' '}
             {ball.impact_source === 'ball' ? 'detected from ball disappearance' : 'estimated'}.
@@ -583,19 +608,49 @@ export default function SessionView({ sessionId, onChanged, focusedMetric, onFoc
       {metrics && (
         <div className="panel">
           <h3>tips</h3>
-          {metrics.tips.length === 0 ? (
-            <p>
-              {allMeasuredMetricsInRange(metrics.metrics)
-                ? 'everything measured is in range — nice swing.'
-                : 'no actionable tips for this swing.'}
-            </p>
+          {tips.length === 0 ? (
+            <p>{metricSummary(metrics.metrics)}</p>
           ) : (
             <ol>
-              {metrics.tips.map((tip) => (
+              {tips.map((tip) => (
                 <li key={tip.metric}>{tip.text}</li>
               ))}
             </ol>
           )}
+          <button
+            disabled={processState === 'running'}
+            onClick={() => {
+              setProcessState('running')
+              api
+                .reanalyze(sessionId)
+                .catch((error: unknown) => setProcessState(`error: ${String(error)}`))
+            }}
+          >
+            {processState === 'running' ? 'reanalysing...' : 'reanalyze saved 3D'}
+          </button>
+          <button
+            disabled={processState === 'running'}
+            onClick={async () => {
+              try {
+                const calibration = await api.calibrationInfo()
+                if (!calibration.bundle_id || calibration.validation_status !== 'accepted')
+                  throw new Error('An independently accepted camera bundle is required.')
+                if (
+                  !window.confirm(
+                    `Reconstruct this session with active camera bundle ${calibration.bundle_id}? Existing 3D and metrics will be archived. Saved capture compatibility must pass.`,
+                  )
+                )
+                  return
+                setProcessState('running')
+                await api.reconstruct(sessionId, calibration.bundle_id)
+              } catch (failure) {
+                setProcessState(`error: ${String(failure)}`)
+              }
+            }}
+          >
+            reconstruct with active calibration
+          </button>
+          {processState.startsWith('error') && <p className="error">{processState}</p>}
         </div>
       )}
     </div>

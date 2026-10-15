@@ -13,29 +13,31 @@ export interface MetricInfo {
 
 export const METRIC_INFO: Record<string, MetricInfo> = {
   shoulder_turn_deg: {
-    label: 'Shoulder Turn',
+    label: 'Peak Shoulder Turn',
     view: 'down-the-line',
     description:
-      'How far your shoulders rotate away from the ball at the top of the backswing, measured around your spine.',
+      'Peak horizontal shoulder rotation from address during the backswing, measured around the supported vertical reference. This is not rotation around the spine.',
     good: 'A full turn of about 85–95° stores power. Under ~80° usually means a short, arms-only backswing.',
   },
   hip_turn_deg: {
-    label: 'Hip Turn',
+    label: 'Peak Hip Turn',
     view: 'down-the-line',
-    description: 'How far your hips rotate during the backswing.',
+    description:
+      'Peak horizontal hip rotation from address during the backswing, not necessarily the rotation at the top frame.',
     good: 'Around 40–55°. The hips should turn roughly half as much as the shoulders — that difference creates coil.',
   },
   x_factor_deg: {
-    label: 'X-Factor',
+    label: 'Peak X-Factor',
     view: 'down-the-line',
     description:
-      'The separation between your shoulder turn and hip turn at the top — the "coil" between your upper and lower body.',
+      'Peak circular separation between simultaneous address-relative shoulder and hip turns during the backswing, not a subtraction of independently timed peaks.',
     good: 'About 35–50°. More separation stores more power, but too much can strain the back.',
   },
   spine_tilt_deg: {
     label: 'Spine Tilt',
     view: 'down-the-line',
-    description: 'The forward tilt of your spine (hips to neck) away from vertical at address.',
+    description:
+      'Forward hip-to-neck bend at address in the ball-facing vertical plane, excluding lateral side-bend.',
     good: 'Roughly 25–40° of forward bend gives the arms room to swing and helps you stay on plane.',
   },
   tempo_ratio: {
@@ -61,14 +63,15 @@ export const METRIC_INFO: Record<string, MetricInfo> = {
   hip_rotation_impact_deg: {
     label: 'Hip Rotation at Impact',
     view: 'down-the-line',
-    description: 'How "open" your hips are (turned toward the target) at the moment of impact.',
+    description:
+      'Horizontal hip rotation from address at impact. Positive is open toward the target; negative is closed.',
     good: 'Good players are about 30–45° open at impact — the hips lead the hands and clear the way for the club.',
   },
   shoulder_tilt_impact_deg: {
     label: 'Shoulder Tilt (Impact)',
     view: 'front-on',
     description:
-      'Secondary-axis tilt: how much your shoulders lean away from the target at impact as the trail shoulder drops.',
+      'Shoulder-line inclination to horizontal at impact. Positive means the trail shoulder is lower; negative means the lead shoulder is lower.',
     good: 'Around 25–45°. This tilt keeps you behind the ball and helps you hit up on the drive.',
   },
   backswing_time_s: {
@@ -84,33 +87,38 @@ export const METRIC_INFO: Record<string, MetricInfo> = {
     good: 'Usually ~0.2–0.3s — roughly a third of the backswing for tour-average 3:1 tempo.',
   },
   head_movement_cm: {
-    label: 'Head Movement',
+    label: 'Head Excursion',
     view: 'front-on',
-    description: 'Total travel of your head from address to impact — the classic "keep your head still".',
+    description:
+      'Maximum 3D displacement of your head from its address position through impact, including movement followed by a return. Not total path length.',
     good: 'Under ~10cm. A little is natural, but big head movement makes consistent contact much harder.',
   },
   spine_angle_change_deg: {
     label: 'Spine-Angle Maintenance',
     view: 'down-the-line',
-    description: 'How much your forward spine tilt changes from address to impact (loss of posture / standing up).',
+    description:
+      'Absolute change in forward spine bend from address to impact, excluding lateral bend. The magnitude alone does not say whether you stood up or bent farther.',
     good: 'Keep it small — under ~10°. Standing up out of posture through impact causes thin and inconsistent strikes.',
   },
   early_extension_cm: {
     label: 'Early Extension',
     view: 'down-the-line',
-    description: 'How far your pelvis thrusts toward the ball line during the downswing — a common amateur fault.',
+    description:
+      'Pelvis displacement from address to impact along the supported ball-facing direction. Positive is toward the ball; negative is retreat.',
     good: 'Under ~8cm. Staying in your posture (hips back, not toward the ball) keeps room for the arms to swing.',
   },
   reverse_spine_deg: {
     label: 'Reverse Spine',
     view: 'front-on',
-    description: 'Side-bend of your upper body at the top of the backswing. Leaning toward the target is a "reverse" tilt.',
+    description:
+      'Hip-to-neck lateral bend at the top. Positive is toward the target (reverse tilt); negative is away from the target.',
     good: 'Keep the side-bend modest (under ~12°) and tilted away from the target, not toward it.',
   },
   knee_flex_deg: {
-    label: 'Knee Flex (Address)',
+    label: 'Knee Angle (Address)',
     view: 'down-the-line',
-    description: 'The bend in your knees at address (averaged across both legs).',
+    description:
+      'Mean included hip-knee-ankle angle at address across both supported legs. 180 degrees is straight, not 180 degrees of flexion.',
     good: 'Around 150–170° — an athletic amount of flex. Too straight or too deep both hurt balance and rotation.',
   },
   lead_arm_deg: {
@@ -120,15 +128,17 @@ export const METRIC_INFO: Record<string, MetricInfo> = {
     good: 'Close to straight (160–180°) at the top gives a consistent swing radius and solid contact.',
   },
   hand_speed_impact_ms: {
-    label: 'Hand Speed at Impact',
+    label: 'Peak Hand Speed Near Impact',
     view: 'front-on',
-    description: 'How fast your hands are moving through impact — a decent proxy for overall swing speed.',
+    description:
+      'Peak supported individual-wrist speed in the configured time window around impact. Not speed at one exact frame or clubhead speed.',
     good: 'Higher is generally faster, but prioritise a repeatable strike over raw speed. Reported in metres per second.',
   },
   swing_plane_deg: {
-    label: 'Swing Plane',
+    label: 'Hand-Path Inclination',
     view: 'down-the-line',
-    description: 'The inclination of your hand path from address to the top — a proxy for the plane the club swings on.',
+    description:
+      'Inclination of the hand-midpoint displacement from address to the top. An endpoint body-pose proxy, not a fitted swing plane or club-shaft angle.',
     good: 'Varies by club and height; look for a consistent plane swing-to-swing rather than a single "right" number.',
   },
 }

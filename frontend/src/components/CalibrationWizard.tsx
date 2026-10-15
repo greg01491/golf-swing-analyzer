@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import type { CalibrationComputeStatus, CalibrationInfo, CalibrationShot } from '../api'
 import LivePreview from './LivePreview'
+import GroundReferencePanel from './GroundReferencePanel'
 
 type Stage = 'camera_1' | 'camera_2' | 'position'
 
@@ -85,10 +86,10 @@ function SetupGate({ onConfirm }: { onConfirm: (distanceM: number) => void }) {
       <div className="panel">
         <h3>Step 0a — print the calibration board</h3>
         <p>
-          Print this checkerboard at <strong>100% scale</strong> (not "fit to page"), then
-          measure one square with a ruler — across several squares and divide, for accuracy —
-          and enter the measured size below. Printers rarely reproduce exact scale, so the
-          measured size matters more than the nominal one printed on the page.
+          Print this checkerboard at <strong>100% scale</strong> (not "fit to page"), then measure
+          one square with a ruler — across several squares and divide, for accuracy — and enter the
+          measured size below. Printers rarely reproduce exact scale, so the measured size matters
+          more than the nominal one printed on the page.
         </p>
         {config ? (
           <img
@@ -114,15 +115,15 @@ function SetupGate({ onConfirm }: { onConfirm: (distanceM: number) => void }) {
         <p>
           Measure the straight-line distance between the two cameras'
           <strong> lenses</strong> — not the camera bodies, mounts, or tripods. Use the{' '}
-          <strong>same reference point on each lens</strong> (e.g. the centre of the front
-          glass on both) — measuring from a different point on each camera introduces an
-          error that scales <em>every</em> 3D measurement the calibration produces afterward,
-          so it's worth getting right.
+          <strong>same reference point on each lens</strong> (e.g. the centre of the front glass on
+          both) — measuring from a different point on each camera introduces an error that scales{' '}
+          <em>every</em> 3D measurement the calibration produces afterward, so it's worth getting
+          right.
         </p>
         <p className="muted">
-          If the cameras are far apart, at different heights, or awkward to reach at the same
-          time, it's much easier with a second person: one of you holds the tape measure at
-          one lens while the other reads the measurement at the other.
+          If the cameras are far apart, at different heights, or awkward to reach at the same time,
+          it's much easier with a second person: one of you holds the tape measure at one lens while
+          the other reads the measurement at the other.
         </p>
         <label className="field">
           distance between the two camera lenses (metres)
@@ -134,12 +135,11 @@ function SetupGate({ onConfirm }: { onConfirm: (distanceM: number) => void }) {
         </label>
       </div>
 
-      {squareSize && !squareSizeValid && <p className="error">enter a square size greater than 0</p>}
+      {squareSize && !squareSizeValid && (
+        <p className="error">enter a square size greater than 0</p>
+      )}
       {distance && !distanceValid && <p className="error">enter a distance greater than 0</p>}
-      <button
-        disabled={!squareSizeValid || !distanceValid || !config || saving}
-        onClick={confirm}
-      >
+      <button disabled={!squareSizeValid || !distanceValid || !config || saving} onClick={confirm}>
         {saving ? 'saving…' : 'confirm and continue'}
       </button>
       {error && <p className="error">{error}</p>}
@@ -292,7 +292,11 @@ export default function CalibrationWizard() {
   // rotation fix) silently keep feeding compute alongside new ones unless
   // explicitly wiped.
   const clearAllShots = async () => {
-    if (!window.confirm('Delete all calibration captures (both cameras and the position shot) and start over?')) {
+    if (
+      !window.confirm(
+        'Delete all calibration captures (both cameras and the position shot) and start over?',
+      )
+    ) {
       return
     }
     stopCapturing()
@@ -346,6 +350,7 @@ export default function CalibrationWizard() {
   }
 
   const info_ = STAGE_INFO[stage]
+  const rejectedValidation = compute?.validation ?? info?.last_candidate?.validation
 
   return (
     <div className="wizard">
@@ -361,24 +366,84 @@ export default function CalibrationWizard() {
       {info &&
         (info.broken ? (
           <div className="panel calib-status stale">
-            <strong>⚠ The current calibration is broken</strong> (reprojection error{' '}
-            {info.reprojection_error_px != null
-              ? `${Math.round(info.reprojection_error_px).toLocaleString()}px`
-              : 'very high'}
-            ; a good one is under ~50px). Every session using it produces garbage 3D — tangled
-            skeletons, wrong positions, nonsense metrics. <strong>Recalibrate:</strong> clear all
-            captures, redo the board and position steps carefully, and recompute.
+            <strong>The current camera evidence failed validation.</strong>{' '}
+            {info.reasons?.join('; ') ||
+              'Review independent camera validation and capture compatibility before trusting reconstructed measurements.'}{' '}
+            A rejected candidate does not replace the last accepted bundle.
           </div>
         ) : (
           <div className={`panel calib-status ${info.stale ? 'stale' : info.exists ? 'ok' : ''}`}>
             {info.exists
               ? `Calibration on file: ${info.age_days?.toFixed(0)} day(s) old${info.stale ? ' — stale, recalibrate' : ''}` +
                 (info.reprojection_error_px != null
-                  ? ` — reprojection error ${Math.round(info.reprojection_error_px)}px`
+                  ? ` — fitting-only error ${info.reprojection_error_px.toFixed(2)}px`
                   : '')
               : 'No calibration on file yet.'}
           </div>
         ))}
+
+      {info && (
+        <section className="calibration-evidence">
+          <h3>Calibration evidence</h3>
+          <p className="muted">
+            Active camera bundle: <code>{info.bundle_id ?? 'legacy-unverified'}</code>
+          </p>
+          <p>
+            Camera geometry: {info.validation_status ?? 'legacy-unverified'}; capture compatibility:{' '}
+            {info.compatibility?.status ?? 'unknown'}; ground reference:{' '}
+            {info.ground_status ?? 'unavailable'}
+          </p>
+          <p className="muted">
+            The historical reprojection score describes fitting only, not independent accuracy.
+          </p>
+          {info.compatibility?.reasons.map((reason) => (
+            <p className="muted" key={reason}>
+              {reason}
+            </p>
+          ))}
+          {info.validation &&
+            Object.entries(info.validation.cameras).map(([camera, evidence]) => (
+              <p key={camera}>
+                {camera}: held-out median {evidence.median_px ?? 'unavailable'} px, p95{' '}
+                {evidence.p95_px ?? 'unavailable'} px, coverage{' '}
+                {Math.round(evidence.coverage * 100)}%
+              </p>
+            ))}
+          {rejectedValidation && (
+            <details>
+              <summary>Rejected candidate validation</summary>
+              {Object.entries(rejectedValidation.cameras).map(([camera, evidence]) => (
+                <p key={camera}>
+                  {camera}: median {evidence.median_px ?? 'unavailable'} px, p95{' '}
+                  {evidence.p95_px ?? 'unavailable'} px, coverage{' '}
+                  {Math.round(evidence.coverage * 100)}%
+                </p>
+              ))}
+            </details>
+          )}
+          <GroundReferencePanel
+            info={info}
+            shots={shots}
+            onChanged={() => {
+              refreshShots()
+              api.calibrationInfo().then(setInfo)
+            }}
+          />
+        </section>
+      )}
+
+      {compute?.state === 'running' && (
+        <button
+          onClick={() =>
+            api
+              .calibrationComputeCancel()
+              .then(setCompute)
+              .catch((failure: unknown) => setError(String(failure)))
+          }
+        >
+          cancel camera validation
+        </button>
+      )}
 
       <div className="wizard-tabs">
         {(['camera_1', 'camera_2', 'position'] as Stage[]).map((s) => (
@@ -386,7 +451,11 @@ export default function CalibrationWizard() {
             {STAGE_INFO[s].title.split('—')[0].trim()}
           </button>
         ))}
-        <button className="link-btn clear-shots-btn" onClick={clearAllShots} disabled={clearingShots}>
+        <button
+          className="link-btn clear-shots-btn"
+          onClick={clearAllShots}
+          disabled={clearingShots}
+        >
           {clearingShots ? 'clearing…' : 'clear all captures and start over'}
         </button>
       </div>
@@ -491,13 +560,13 @@ export default function CalibrationWizard() {
                 {compute.result.camera_2.lens_rms_px}px
               </li>
               <li>
-                {compute.result.keypoint_correspondences} body-keypoint matches, mean
-                reprojection error {compute.result.mean_reprojection_error_px}px
+                {compute.result.keypoint_correspondences} body-keypoint matches, mean reprojection
+                error {compute.result.mean_reprojection_error_px}px
               </li>
               {compute.result.estimated_person_height_m && (
                 <li>
-                  sanity check — estimated body extent:{' '}
-                  {compute.result.estimated_person_height_m}m (should be roughly your height)
+                  sanity check — estimated body extent: {compute.result.estimated_person_height_m}m
+                  (should be roughly your height)
                 </li>
               )}
             </ul>

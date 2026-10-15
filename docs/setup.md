@@ -110,6 +110,30 @@ Recalibrate whenever a camera moves. The app flags calibration older than
 
 ## 6. Run
 
+### Independent calibration and measured references
+
+Camera candidates now reserve independent lens captures and temporal camera-position
+observations before fitting. Review held-out per-camera errors and body-region coverage,
+not only the historical fit-inlier error. Failed or cancelled candidates leave the last
+accepted camera bundle unchanged. Legacy files remain readable as unverified geometry.
+
+Use matching camera identity, dimensions, rotation, frame mode and fixed/read-back lens
+settings for the rig. Unknown historical metadata is not filled from current settings.
+Accepted bundles are immutable; camera-geometry acceptance and ground readiness are separate.
+
+After accepting compatible cameras, capture two level measured-board placements with a
+marked row pointing toward the target. Identify the marked origin in each camera preview
+and confirm which side contains the golfer. Independent geometric checks, not confirmations
+alone, decide acceptance. The resulting measured reference is transferred automatically
+into the selected filtered TRC's coordinates with source fingerprints.
+
+Saved-3D reanalysis updates metrics only. **Reconstruct with active calibration** is a
+separate explicit action: it requires compatible recorded evidence and archives previous
+outputs before rebuilding. It cannot certify an old capture whose settings are unknown.
+See [calibration-validation.md](calibration-validation.md) for the independent rig protocol
+and physical-accuracy limits. No new personal calibration or recording was installed as
+part of software testing.
+
 ### Installed desktop app
 
 The Windows installer contains Electron, the Python backend, Pose2Sim, OpenSim,
@@ -131,6 +155,10 @@ two-camera calibration workflow has been completed.
 
 ### Development
 
+Use Node.js 24 for frontend development and `npm test`; the confidence/history tests
+use its native TypeScript stripping rather than adding another test framework. The
+frontend CI job runs these tests before lint and build.
+
 ```bash
 # Terminal 1 — backend
 cd backend && ./.venv/Scripts/activate
@@ -147,6 +175,64 @@ CLI equivalents: `golf_sim.audio.cli listen`, `golf_sim.pose.cli full --latest`,
 `golf_sim.analysis.cli --latest`.
 
 ## 7. Validate the rig (first-time checks)
+
+### Metric confidence and saved results
+
+Analysis version 2 returns all 19 measurements with `valid`, `estimated`, or
+`unavailable` status. A finite number is not proof of reliable tracking. Only valid
+measurements with compatible targets receive pass/fail verdicts or coaching. Estimated
+results show their reason; unavailable results have no numeric value. Wrist visibility
+does not establish that the shoulders, hips, or head were reconstructed correctly.
+
+Shoulder/hip turn and X-Factor are supported peak horizontal backswing measurements,
+not necessarily top-frame values or rotation around the spine. Head movement is maximum
+excursion from address through impact, not just the difference between two frames.
+Impact hip rotation is positive open and negative closed; shoulder tilt is positive
+when the trail shoulder drops. Early extension is positive ballward and negative away;
+reverse spine is positive targetward and negative away. Knee angle is 180 degrees when
+straight. Hand speed is a supported peak near impact, and hand-path inclination remains
+an endpoint body-pose proxy, not a club-shaft or fitted-plane measurement.
+
+Older results remain inspectable as **legacy-unverified** without current verdicts,
+coaching, or inclusion in comparable trends. Opening them does not rewrite captures.
+Choose **reanalyze saved 3D** to explicitly recompute metrics using saved landmarks;
+this does not rerun pose reconstruction and cannot repair missing or corrupt landmarks.
+Missing source landmarks produce an actionable error. Full processing is a separate action.
+
+Body-derived up is an estimate. Inconsistent torso/leg geometry makes that reference
+unavailable, and an ambiguous ball direction makes directional measurements unavailable.
+The measured ground-reference workflow supplies independently checked board evidence;
+ordinary handheld lens calibration alone does not establish a level floor normal.
+
+Ground evidence is generated from accepted camera/reference bundles and transferred to
+the actual filtered TRC through its recorded coordinate transform. Analysis verifies the
+camera manifest, ground fingerprint, capture signatures, exact TRC bytes and evidence
+digest in session metadata. Manually adding `validated: true` or guessed vectors to a
+session does not authorize measurement confidence. Reanalysis never substitutes an
+unrelated current calibration for missing original evidence.
+
+Evidence settings live under `metrics`: time-based `turn_filter_window_s` (0.05),
+`address_window_s` (0.1), and `hand_speed_window_s` (0.1); `turn_outlier_deg` (20);
+`min_projected_width_m` (0.02); `min_supported_fraction` (0.8);
+`frozen_tolerance_m` (0.0001); `max_marker_speed_ms` (20);
+`max_limb_length_ratio` (1.5); plausible pelvis-height bounds (0.3-1.5 m);
+`held_observation_motion_px` (2); and `marker_outlier_distance_m` (0.05).
+These are configurable engineering checks, not clinical confidence probabilities.
+
+Targets now declare `metrics.range_definition_version: 2`. Legacy custom target files
+without compatible metadata remain readable, but their old ranges are not silently
+applied. Review values against the definitions before opting into version 2; do not
+merely change the version marker to make old ranges apply. Shipped bands are editable
+coaching heuristics, not independently certified biomechanical norms. Early extension
+uses a signed -8 to 8 cm stability band; reverse spine flags targetward bend above
+12 degrees, with -90 as the mathematical lower limit for away-target bend rather than
+a recommended posture. Other posture/head targets retain their numeric limits but now
+apply to the documented forward-component and excursion definitions. Club overrides
+remain in effect only for compatible targets.
+
+Physical accuracy still requires independent reference geometry and synchronized video
+review. The October recordings with held torso landmarks demonstrate correct rejection,
+not certified corrected shoulder/hip angles. Their original files are unchanged.
 
 1. **Sync check:** clap once in view of both cameras, capture manually, then
    `python -m golf_sim.capture.sync_check <session>/camera_1.mp4 <session>/camera_2.mp4`.

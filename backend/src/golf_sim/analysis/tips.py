@@ -72,9 +72,8 @@ _TIP_RULES: dict[str, tuple[str, str]] = {
     "hip_rotation_impact_deg": (
         "Your hips aren't opening enough by impact, so your arms have to do the "
         "work. Feel like your lead hip clears behind you as the club comes down.",
-        "Your hips are spinning open very fast through impact, which can leave the "
-        "face open and cost strike quality. Let the hips lead, but keep the chest "
-        "and arms in sync rather than racing the lower body.",
+        "Your hips are more open than the target window at impact. Check that your "
+        "pelvis and upper body arrive together; this angle does not measure rotation speed.",
     ),
     "shoulder_tilt_impact_deg": (
         "Your shoulders are fairly level at impact. A touch more tilt away from the "
@@ -84,15 +83,13 @@ _TIP_RULES: dict[str, tuple[str, str]] = {
     ),
     "head_movement_cm": (
         "",  # very still is fine
-        "Your head is travelling a fair bit during the swing. Pick a spot and try "
-        "to keep your head over the ball until well after impact -- it steadies the "
-        "whole strike.",
+        "Your head moves farther from its address position than the target window "
+        "before impact. Work on a balanced, repeatable head position through the swing.",
     ),
     "spine_angle_change_deg": (
         "",
-        "You're losing your posture through impact (standing up out of your spine "
-        "angle). Feel like your chest stays down and your belt buckle -- not your "
-        "head -- rotates to the target.",
+        "Your forward spine bend changes substantially between address and impact. "
+        "Check whether you rise or bend farther, then work on maintaining your address posture.",
     ),
     "early_extension_cm": (
         "",
@@ -142,7 +139,7 @@ class Tip:
 
 
 def _severity(metric: MetricResult) -> tuple[str, float] | None:
-    if metric.in_range is not False:
+    if metric.status != "valid" or metric.in_range is not False:
         return None
     assert metric.range_min is not None and metric.range_max is not None
     width = metric.range_max - metric.range_min

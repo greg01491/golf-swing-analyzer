@@ -75,6 +75,18 @@ def test_low_sway_has_no_tip_text():
     assert generate_tips(report) == []
 
 
+def test_uncertain_values_never_generate_coaching_even_with_stale_verdict():
+    for status in ("estimated", "unavailable"):
+        metric = _metric("shoulder_turn_deg", 160, 80, 100)
+        metric.status = status
+        assert generate_tips(_report([metric])) == []
+
+
+def test_retreat_and_away_target_bend_do_not_claim_opposite_faults():
+    assert generate_tips(_report([_metric("early_extension_cm", -10, 0, 8)])) == []
+    assert generate_tips(_report([_metric("reverse_spine_deg", -20, 0, 12)])) == []
+
+
 def test_newly_ranged_metrics_have_advice_in_both_directions():
     for name in NEWLY_RANGED_METRICS:
         low_tip = generate_tips(_report([_metric(name, -1, 0, 1)]))

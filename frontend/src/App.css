@@ -318,17 +318,39 @@ main {
 
 .metrics-panel {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
   gap: 4px 28px;
   align-items: start;
 }
 
-.metrics-panel > h3 {
+.metrics-panel > h3,
+.metrics-heading,
+.metric-instruction {
   grid-column: 1 / -1;
 }
 
 .metrics-panel .metric-group table {
   width: 100%;
+  table-layout: fixed;
+}
+
+.metrics-panel td {
+  overflow-wrap: anywhere;
+  vertical-align: top;
+}
+
+.metrics-panel .metric-value small {
+  display: block;
+}
+
+.metrics-panel .metric-focus {
+  max-width: 100%;
+  white-space: normal;
+}
+
+.metrics-panel .metric-focus span {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .video-frame video {
@@ -1006,6 +1028,18 @@ ol li {
 }
 
 @media (max-width: 720px) {
+  .main {
+    flex-direction: column;
+  }
+
+  .main > aside {
+    width: auto;
+    max-height: 180px;
+    flex: none;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
   .settings .field {
     align-items: flex-start;
     flex-direction: column;
@@ -1031,6 +1065,29 @@ ol li {
 .wizard {
   max-width: 760px;
   margin: 0 auto;
+}
+
+.calibration-evidence {
+  padding: 12px 0;
+  overflow-wrap: anywhere;
+}
+
+.ground-reference label {
+  display: block;
+  margin: 10px 0;
+}
+
+.ground-reference select {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  margin-top: 4px;
+}
+
+.ground-reference button {
+  max-width: 100%;
+  white-space: normal;
 }
 
 .calib-status {
@@ -1128,7 +1185,7 @@ ol li {
   z-index: 2;
 }
 
-.countdown-big[data-saving="true"] {
+.countdown-big[data-saving='true'] {
   font-size: 20px;
   gap: 12px;
   background: rgba(0, 0, 0, 0.8);
@@ -1140,7 +1197,7 @@ ol li {
   opacity: 0.85;
 }
 
-.countdown-big[data-saving="true"] .countdown-caption {
+.countdown-big[data-saving='true'] .countdown-caption {
   font-size: 14px;
 }
 
@@ -1366,7 +1423,7 @@ ol li {
 
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr));
   gap: 12px;
   margin-top: 12px;
 }
@@ -1407,4 +1464,3 @@ ol li {
   fill: var(--muted);
   font-size: 11px;
 }
-

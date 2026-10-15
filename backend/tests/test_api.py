@@ -89,6 +89,106 @@ def test_sessions_empty(client):
     assert client.get("/api/sessions").json() == []
 
 
+def test_ground_reference_requires_confirmation_and_accepted_camera_geometry(client):
+    assert client.post("/api/calibration/shot", json={"kind": "ground"}).status_code == 422
+    assert (
+        client.post(
+            "/api/calibration/shot",
+            json={"kind": "ground", "level_confirmed": True, "target_confirmed": True},
+        ).status_code
+        == 409
+    )
+    assert client.post("/api/calibration/ground", json={"session_ids": []}).status_code == 422
+    info = client.get("/api/calibration/info").json()
+    assert info["validation_status"] == "legacy-unverified"
+    assert info["ground_status"] == "unavailable"
+
+
+def test_corrupt_candidate_report_does_not_break_status(client, config):
+    root = Path(config.calibration.dir)
+    root.mkdir(parents=True)
+    (root / "last-candidate.json").write_text("not valid JSON")
+    response = client.get("/api/calibration/info")
+    assert response.status_code == 200
+    assert response.json()["last_candidate"]["status"] == "unverified"
+
+
+def test_reconstruction_selection_checks_saved_observations_after_compatibility(client, config):
+    from golf_sim.pose.calibration_bundle import camera_signatures, publish_bundle
+
+    directory = _fake_session(config)
+    metadata = json.loads((directory / "metadata.json").read_text())
+    cameras = {}
+    for camera in config.cameras.devices:
+        camera.name = f"fixed-{camera.role}"
+        camera.autofocus = False
+        camera.focus = 0
+        rotated = camera.rotation_deg in (90, 270)
+        cameras[camera.role] = {
+            "device_name": camera.name,
+            "width": camera.height if rotated else camera.width,
+            "height": camera.width if rotated else camera.height,
+            "rotation_deg": camera.rotation_deg,
+            "requested_fps": camera.fps,
+            "geometry_controls": {"autofocus": {"readback": 0}, "focus": {"readback": 0}},
+        }
+    metadata["cameras"] = cameras
+    (directory / "metadata.json").write_text(json.dumps(metadata))
+    root = Path(config.calibration.dir)
+    root.mkdir(parents=True)
+    candidate = root / "candidate.toml"
+    candidate.write_text("accepted test geometry")
+    accepted = publish_bundle(
+        root, candidate, {"status": "accepted"}, camera_signatures(config, metadata)
+    )
+    response = client.post(
+        f"/api/sessions/{directory.name}/reconstruct", json={"bundle_id": accepted["bundle_id"]}
+    )
+    assert response.status_code == 409
+    assert "saved 2D" in response.json()["detail"]
+    assert not (directory / "reconstruction-history").exists()
+
+
+def test_reanalysis_requires_saved_3d_without_modifying_legacy_results(client, config, processor):
+    session_dir = _fake_session(config)
+    before = (session_dir / "metrics.json").read_bytes()
+
+    response = client.post(f"/api/sessions/{session_dir.name}/reanalyze")
+
+    assert response.status_code == 409
+    assert processor.calls == []
+    assert (session_dir / "metrics.json").read_bytes() == before
+
+
+def test_explicit_reanalysis_does_not_rerun_pose_pipeline(client, config, processor, monkeypatch):
+    import threading
+
+    session_dir = _fake_session(config)
+    pose_dir = session_dir / "pose2sim" / "pose-3d"
+    pose_dir.mkdir(parents=True)
+    (pose_dir / "saved_filt_butterworth.trc").write_text("saved landmarks")
+    finished = threading.Event()
+    calls = []
+
+    def analyze_saved(directory, active_config):
+        calls.append(directory)
+        finished.set()
+
+    monkeypatch.setattr("golf_sim.analysis.cli.analyze_session", analyze_saved)
+    before = (session_dir / "metrics.json").read_bytes()
+    client.get(f"/api/sessions/{session_dir.name}")
+    client.get("/api/stats")
+    assert calls == []
+    assert (session_dir / "metrics.json").read_bytes() == before
+
+    response = client.post(f"/api/sessions/{session_dir.name}/reanalyze")
+
+    assert response.status_code == 200
+    assert finished.wait(2)
+    assert calls == [session_dir]
+    assert processor.calls == []
+
+
 def test_startup_endpoints_expose_backend_and_setup_readiness(client):
     assert client.get("/api/health").json() == {"ready": True}
     startup = client.get("/api/startup").json()
@@ -322,10 +422,13 @@ def test_stats_aggregates_metrics_oldest_first(client, config):
 
     stats = client.get("/api/stats").json()
     assert [s["id"] for s in stats] == ["20260101T000000Z-a", "20260102T000000Z-b"]
-    assert stats[0]["metrics"][0] == metric
+    assert stats[0]["metrics"][0]["value"] == metric["value"]
+    assert stats[0]["metrics"][0]["status"] == "legacy-unverified"
+    assert stats[0]["metrics"][0]["in_range"] is None
 
     detail = client.get("/api/sessions/20260101T000000Z-a").json()
-    assert detail["metrics"]["tips"] == [tip]
+    assert detail["metrics"]["tips"] == []
+    assert json.loads((root / "20260101T000000Z-a" / "metrics.json").read_text()) == payload
 
 
 def test_config_roundtrip_and_validation(client, tmp_path):

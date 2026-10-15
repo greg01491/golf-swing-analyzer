@@ -24,6 +24,9 @@ export interface MetricEntry {
   unit: string
   in_range: boolean | null
   range: { min: number; max: number } | null
+  status?: 'valid' | 'estimated' | 'unavailable' | 'legacy-unverified'
+  definition_id?: string
+  reasons?: string[]
 }
 
 export interface TipEntry {
@@ -37,6 +40,8 @@ export interface StatsSession {
   id: string
   created_at: string | null
   metrics: MetricEntry[]
+  analysis_version?: number | null
+  club?: string | null
 }
 
 export interface PPosition {
@@ -70,6 +75,8 @@ export interface SessionDetail {
   // golfer) available for playback
   overlay_cameras?: string[]
   metrics: {
+    analysis_version?: number
+    reference_frame?: { source: string; status: string; reasons: string[] }
     club?: string | null
     club_profile?: string | null
     phases?: { address_frame: number; top_frame: number; impact_frame: number }
@@ -124,11 +131,43 @@ export interface CalibrationInfo {
   stale: boolean
   reprojection_error_px?: number | null
   broken?: boolean
+  validation_status?: string
+  validation?: CalibrationValidation | null
+  bundle_id?: string | null
+  ground_status?: string
+  last_candidate?: {
+    status: string
+    error: string
+    validation: CalibrationValidation | null
+  } | null
+  compatibility?: { status: string; reasons: string[] }
+  reasons?: string[]
+}
+
+export interface CalibrationValidation {
+  status: string
+  reasons: string[]
+  cameras: Record<
+    string,
+    {
+      median_px: number | null
+      p95_px: number | null
+      coverage: number
+      regions: Record<string, number>
+    }
+  >
+}
+
+export interface GroundReferenceStatus {
+  state: 'idle' | 'running' | 'done' | 'error'
+  error?: string
+  result?: { ground_id: string; bundle_id: string }
 }
 
 export interface CalibrationShot {
   id: string
-  kind: 'intrinsics' | 'extrinsics'
+  kind: 'intrinsics' | 'extrinsics' | 'ground'
+  bundle_id?: string | null
   // which camera the board was held up to (wizard step 1 vs 2); null on
   // shots captured before this field existed
   for_camera?: string | null
@@ -140,6 +179,7 @@ export interface CalibrationComputeStatus {
   state: 'idle' | 'running' | 'done' | 'error'
   stage?: string
   error?: string
+  validation?: CalibrationValidation
   result?: {
     calib_file: string
     camera_1: { lens_views: number; lens_rms_px: number }
@@ -147,6 +187,9 @@ export interface CalibrationComputeStatus {
     keypoint_correspondences: number
     mean_reprojection_error_px: number
     estimated_person_height_m: number | null
+    validation?: CalibrationValidation
+    compatibility?: { status: string; reasons: string[] }
+    ground_status?: string
   }
 }
 
@@ -171,7 +214,10 @@ export interface CameraCheckResult {
   actual_width: number | null
   actual_height: number | null
   measured_fps: number | null
-  controls: Record<string, { requested: number | boolean; set_ok: boolean; readback: number | null }>
+  controls: Record<
+    string,
+    { requested: number | boolean; set_ok: boolean; readback: number | null }
+  >
   sharpness: number | null
   brightness: number | null
   meets_minimum: boolean
@@ -197,8 +243,7 @@ export const api = {
   startup: () => fetch(`${BASE}/api/startup`).then((r) => json<StartupStatus>(r)),
   sessions: () => fetch(`${BASE}/api/sessions`).then((r) => json<SessionSummary[]>(r)),
   stats: () => fetch(`${BASE}/api/stats`).then((r) => json<StatsSession[]>(r)),
-  session: (id: string) =>
-    fetch(`${BASE}/api/sessions/${id}`).then((r) => json<SessionDetail>(r)),
+  session: (id: string) => fetch(`${BASE}/api/sessions/${id}`).then((r) => json<SessionDetail>(r)),
   updateSession: (id: string, patch: { group?: string; label?: string }) =>
     fetch(`${BASE}/api/sessions/${id}`, {
       method: 'PATCH',
@@ -215,11 +260,21 @@ export const api = {
     ),
   landmarks: (id: string) =>
     fetch(`${BASE}/api/sessions/${id}/landmarks`).then((r) => json<Landmarks>(r)),
+  reanalyze: (id: string) =>
+    fetch(`${BASE}/api/sessions/${id}/reanalyze`, { method: 'POST' }).then((r) =>
+      json<{ status: string }>(r),
+    ),
   // cb= busts Chromium's media cache, which is separate from the HTTP cache
   // and survives hard reloads: clips get replaced in place (H.264 migration,
   // overlay rewrites on re-processing), and it kept replaying a stale
   // pre-transcode copy that no longer decoded. Local server, ~1.5MB clips --
   // refetching per view is a non-issue.
+  reconstruct: (id: string, bundleId: string) =>
+    fetch(`${BASE}/api/sessions/${id}/reconstruct`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bundle_id: bundleId }),
+    }).then((response) => json<{ status: string }>(response)),
   videoUrl: (id: string, camera: string, overlay = false) =>
     `${BASE}/api/sessions/${id}/video/${camera}?overlay=${overlay}&cb=${Date.now()}`,
   process: (id: string) =>
@@ -269,11 +324,15 @@ export const api = {
     fetch(`${BASE}/api/calibration/shots`, { method: 'DELETE' }).then((r) =>
       json<{ deleted: number }>(r),
     ),
-  calibrationShot: (kind: 'intrinsics' | 'extrinsics', camera?: string) =>
+  calibrationShot: (
+    kind: 'intrinsics' | 'extrinsics' | 'ground',
+    camera?: string,
+    confirmations?: { level_confirmed: boolean; target_confirmed: boolean },
+  ) =>
     fetch(`${BASE}/api/calibration/shot`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ kind, camera }),
+      body: JSON.stringify({ kind, camera, ...confirmations }),
     }).then((r) => json<CalibrationShot>(r)),
   calibrationCompute: (cameraDistanceM: number) =>
     fetch(`${BASE}/api/calibration/compute`, {
@@ -283,6 +342,30 @@ export const api = {
     }).then((r) => json<CalibrationComputeStatus>(r)),
   calibrationComputeStatus: () =>
     fetch(`${BASE}/api/calibration/compute`).then((r) => json<CalibrationComputeStatus>(r)),
+  calibrationComputeCancel: () =>
+    fetch(`${BASE}/api/calibration/compute`, { method: 'DELETE' }).then((response) =>
+      json<CalibrationComputeStatus>(response),
+    ),
+  groundReference: (
+    sessionIds: string[],
+    origins: Record<string, Record<string, string>>,
+    golferSide: number,
+  ) =>
+    fetch(`${BASE}/api/calibration/ground`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_ids: sessionIds, origins, golfer_side: golferSide }),
+    }).then((response) => json<GroundReferenceStatus>(response)),
+  groundReferenceStatus: () =>
+    fetch(`${BASE}/api/calibration/ground`).then((response) =>
+      json<GroundReferenceStatus>(response),
+    ),
+  groundReferenceCancel: () =>
+    fetch(`${BASE}/api/calibration/ground`, { method: 'DELETE' }).then((response) =>
+      json<GroundReferenceStatus>(response),
+    ),
+  groundPreviewUrl: (sessionId: string, camera: string) =>
+    `${BASE}/api/calibration/shots/${sessionId}/ground-preview/${camera}`,
   diagnosticsSystem: () =>
     fetch(`${BASE}/api/diagnostics/system`).then((r) => json<SystemCheckResult>(r)),
   diagnosticsCameras: () =>

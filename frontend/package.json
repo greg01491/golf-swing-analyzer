@@ -1,7 +1,7 @@
 {
   "name": "golf-swing-analyzer",
   "private": true,
-  "version": "0.1.14",
+  "version": "0.1.15",
   "description": "Desktop golf swing capture and 3D pose analysis",
   "author": "Greg Brown",
   "repository": {
@@ -58,6 +58,7 @@
     "build": "tsc -b && vite build",
     "backend:build": "cd ../backend && python prepare_models.py && python -m PyInstaller --noconfirm golf_sim_backend.spec",
     "lint": "oxlint",
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
     "preview": "vite preview",
     "electron:dev": "concurrently -k -n VITE,ELECTRON -c blue,green \"vite\" \"wait-on tcp:5173 && electron .\"",
     "electron:build": "npm run build && npm run backend:build && electron-builder --publish never"

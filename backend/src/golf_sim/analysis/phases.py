@@ -18,7 +18,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from golf_sim.analysis.frame_of_reference import vertical_axis
+from golf_sim.analysis.frame_of_reference import AnalysisReference, infer_reference
 from golf_sim.trc import LandmarkSequence
 
 
@@ -31,6 +31,7 @@ class SwingPhases:
     address_frame: int
     top_frame: int
     impact_frame: int
+    status: str = "valid"
 
     def tempo_ratio(self, times: np.ndarray) -> float:
         backswing = times[self.top_frame] - times[self.address_frame]
@@ -60,17 +61,20 @@ def detect_phases(
     seq: LandmarkSequence,
     quiet_speed_fraction: float = 0.1,
     impact_hint_frame: int | None = None,
+    reference: AnalysisReference | None = None,
 ) -> SwingPhases:
     if seq.n_frames < 5:
         raise PhaseDetectionError(f"too few frames ({seq.n_frames}) to detect phases")
 
     hands = hands_midpoint(seq)
-    up_axis, up_sign = vertical_axis(seq)
+    reference = reference if reference is not None else infer_reference(seq)
+    if reference.up is None:
+        raise PhaseDetectionError("vertical reference is unavailable")
     # A rolling median kills single-frame triangulation spikes (one badly
     # triangulated frame would otherwise become a false "lowest"/"highest"
     # hand position and wreck impact/top detection) while preserving the
     # real swing shape.
-    height = _rolling_median(hands[:, up_axis] * up_sign, window=5)
+    height = _rolling_median(hands @ reference.up, window=5)
 
     speed = np.linalg.norm(np.diff(hands, axis=0), axis=1) * seq.fps
     peak_speed = np.nanmax(speed)
@@ -114,4 +118,9 @@ def detect_phases(
     if top <= address:
         top = min(address + 1, impact - 1)
 
-    return SwingPhases(address_frame=address, top_frame=top, impact_frame=impact)
+    return SwingPhases(
+        address_frame=address,
+        top_frame=top,
+        impact_frame=impact,
+        status="valid" if reference.status == "valid" else "estimated",
+    )

@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_CONFIG_PATH = REPO_ROOT / "config" / "config.yaml"
@@ -83,12 +83,30 @@ class PoseConfig(BaseModel):
     save_debug_video: bool
 
 
+class CalibrationValidationConfig(BaseModel):
+    max_lens_rms_px: float = Field(default=5.0, gt=0)
+    max_median_error_px: float = Field(default=5.0, gt=0)
+    max_tail_error_px: float = Field(default=15.0, gt=0)
+    min_coverage: float = Field(default=0.8, gt=0, le=1)
+    min_positive_depth: float = Field(default=0.95, gt=0, le=1)
+    min_fit_correspondences: int = Field(default=100, ge=8)
+    min_heldout_correspondences: int = Field(default=100, ge=8)
+    min_heldout_frames: int = Field(default=20, ge=2)
+    heldout_fraction: float = Field(default=0.25, gt=0, lt=0.5)
+    partition_gap_s: float = Field(default=0.25, ge=0)
+    max_reference_error_px: float = Field(default=2.0, gt=0)
+    max_normal_difference_deg: float = Field(default=3.0, gt=0, lt=90)
+    max_length_relative_error: float = Field(default=0.05, gt=0, lt=1)
+    min_board_span_px: float = Field(default=80.0, gt=0)
+
+
 class CalibrationConfig(BaseModel):
     dir: str
     max_age_days: int
     checkerboard_corners: list[int]
     checkerboard_square_size_mm: float
     camera_distance_m: float = 3.115
+    validation: CalibrationValidationConfig = Field(default_factory=CalibrationValidationConfig)
 
 
 class ReferenceRange(BaseModel):
@@ -133,8 +151,28 @@ CLUB_LABELS: dict[Club, str] = {
 
 class MetricsConfig(BaseModel):
     reference_ranges: dict[str, ReferenceRange]
+    range_definition_version: int | None = Field(default=None, ge=1)
     club_profiles: dict[str, dict[str, ReferenceRange]] = Field(default_factory=dict)
     club_profile_mapping: dict[Club, str] = Field(default_factory=dict)
+    turn_filter_window_s: float = Field(default=0.05, gt=0)
+    address_window_s: float = Field(default=0.1, gt=0)
+    turn_outlier_deg: float = Field(default=20.0, gt=0, lt=180)
+    min_projected_width_m: float = Field(default=0.02, gt=0)
+    min_supported_fraction: float = Field(default=0.8, gt=0, le=1)
+    frozen_tolerance_m: float = Field(default=0.0001, gt=0)
+    hand_speed_window_s: float = Field(default=0.1, gt=0)
+    max_marker_speed_ms: float = Field(default=20.0, gt=0)
+    max_limb_length_ratio: float = Field(default=1.5, gt=1)
+    min_pelvis_height_m: float = Field(default=0.3, gt=0)
+    max_pelvis_height_m: float = Field(default=1.5, gt=0)
+    held_observation_motion_px: float = Field(default=2.0, gt=0)
+    marker_outlier_distance_m: float = Field(default=0.05, gt=0)
+
+    @model_validator(mode="after")
+    def validate_height_bounds(self) -> MetricsConfig:
+        if self.max_pelvis_height_m <= self.min_pelvis_height_m:
+            raise ValueError("max_pelvis_height_m must exceed min_pelvis_height_m")
+        return self
 
     def ranges_for_club(self, club: Club | None) -> dict[str, ReferenceRange]:
         ranges = dict(self.reference_ranges)

@@ -44,6 +44,8 @@ class TrackingQuality:
     swing_moving_fraction: float | None = None
     camera_wrist_visibility: dict[str, dict[str, float]] | None = None
     camera_wrist_triangulation_coverage: dict[str, dict[str, float]] | None = None
+    metric_confidence: dict[str, str] | None = None
+    metric_reasons: dict[str, list[str]] | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -58,6 +60,8 @@ def assess_tracking_quality(
     swing_window: tuple[int, int] | None = None,
     camera_wrist_visibility: dict[str, dict[str, float]] | None = None,
     camera_wrist_triangulation_coverage: dict[str, dict[str, float]] | None = None,
+    metric_confidence: dict[str, str] | None = None,
+    metric_reasons: dict[str, list[str]] | None = None,
 ) -> TrackingQuality:
     hands = _hands(seq)
     warnings: list[str] = []
@@ -126,6 +130,19 @@ def assess_tracking_quality(
             "-- the rig calibration looks wrong; recalibrate before trusting results"
         )
 
+    if metric_confidence:
+        for name in ("shoulder_turn_deg", "hip_turn_deg", "head_movement_cm"):
+            if metric_confidence.get(name) == "unavailable":
+                details = "; ".join((metric_reasons or {}).get(name, []))
+                warnings.append(
+                    f"{name} is unavailable: {details or 'required landmarks are unsupported'}"
+                )
+        estimated = [name for name, status in metric_confidence.items() if status == "estimated"]
+        if estimated:
+            advisories.append(
+                "Estimated measurements have no target verdict or coaching: " + ", ".join(estimated)
+            )
+
     return TrackingQuality(
         moving_fraction=round(moving_fraction, 3),
         hand_vertical_range_m=round(vertical_range, 2),
@@ -137,4 +154,6 @@ def assess_tracking_quality(
         ),
         camera_wrist_visibility=camera_wrist_visibility,
         camera_wrist_triangulation_coverage=camera_wrist_triangulation_coverage,
+        metric_confidence=metric_confidence,
+        metric_reasons=metric_reasons,
     )

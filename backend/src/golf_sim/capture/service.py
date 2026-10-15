@@ -50,6 +50,9 @@ class CaptureService:
                 "width": dev.height if rotated_90 else dev.width,
                 "height": dev.width if rotated_90 else dev.height,
                 "fps": dev.fps,
+                "device_name": dev.name,
+                "rotation_deg": dev.rotation_deg,
+                "requested_fps": dev.fps,
             }
 
         self.writer = SessionWriter(resolve_state_path(config.storage.data_dir))
@@ -83,6 +86,7 @@ class CaptureService:
             raw_duration = raw[-1].timestamp - raw[0].timestamp if len(raw) > 1 else 0.0
             self.camera_meta[role].update(
                 {
+                    "geometry_controls": getattr(stream.source, "control_readbacks", {}),
                     "source_frame_count": len(raw),
                     "source_duration_s": round(raw_duration, 6),
                     "source_effective_fps": (

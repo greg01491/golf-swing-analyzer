@@ -31,6 +31,30 @@ def sessions_root(data_dir: Path) -> Path:
     return Path(data_dir) / "sessions"
 
 
+def _review_analysis(payload: dict) -> dict:
+    analysis = _json_safe(payload)
+    valid_names = set()
+    for metric in analysis.get("metrics", []):
+        compatible = (
+            analysis.get("analysis_version") == 2
+            and metric.get("definition_id") == f"{metric.get('name')}:2"
+            and metric.get("status") in {"valid", "estimated", "unavailable"}
+        )
+        if not compatible:
+            metric["status"] = "legacy-unverified"
+            metric["reasons"] = [
+                "legacy_analysis: explicit reanalysis is required to verify this measurement"
+            ]
+        if metric.get("value") is None and metric.get("status") == "valid":
+            metric["status"] = "unavailable"
+        if metric.get("status") != "valid":
+            metric["in_range"] = None
+        else:
+            valid_names.add(metric.get("name"))
+    analysis["tips"] = [tip for tip in analysis.get("tips", []) if tip.get("metric") in valid_names]
+    return analysis
+
+
 # The default group a swing belongs to until it's explicitly moved. Reference
 # swings (e.g. tour-pro captures) go under PRO_GROUP so the UI can show them in
 # a separate section that gives users a green-metric benchmark to compare to.
@@ -208,11 +232,14 @@ def sessions_stats(data_dir: Path) -> list[dict]:
             metadata = json.loads(meta_path.read_text()) if meta_path.exists() else {}
         except (json.JSONDecodeError, OSError):
             metadata = {}
+        analysis = _review_analysis(data)
         out.append(
             {
                 "id": session_dir.name,
                 "created_at": metadata.get("created_at"),
-                "metrics": _json_safe(data.get("metrics", [])),
+                "metrics": analysis.get("metrics", []),
+                "analysis_version": analysis.get("analysis_version"),
+                "club": data.get("club", metadata.get("club")),
             }
         )
     # oldest-first so the frontend can plot a left-to-right time series
@@ -229,7 +256,9 @@ def session_detail(data_dir: Path, session_id: str) -> dict:
         "id": session_id,
         "metadata": json.loads(meta_path.read_text()) if meta_path.exists() else {},
         "metrics": (
-            _json_safe(json.loads(metrics_path.read_text())) if metrics_path.exists() else None
+            _review_analysis(json.loads(metrics_path.read_text()))
+            if metrics_path.exists()
+            else None
         ),
         "cameras": sorted(p.stem for p in session_dir.glob("camera_*.mp4")),
         # cameras with a pose-overlay debug video (skeleton drawn on the

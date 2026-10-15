@@ -7,7 +7,8 @@ import SessionView from './components/SessionView'
 import Settings from './components/Settings'
 import StatsView from './components/StatsView'
 import SystemCheck from './components/SystemCheck'
-import { allMeasuredMetricsInRange } from './metricFeedback'
+import { spokenMetricFeedback } from './metricFeedback'
+import { formatMetricName } from './metricInfo'
 import './App.css'
 
 type View = 'sessions' | 'stats' | 'settings' | 'calibrate' | 'system-check'
@@ -36,37 +37,8 @@ function groupSessions(sessions: SessionSummary[]): [string, SessionSummary[]][]
     .map((key) => [key, groups.get(key)!] as [string, SessionSummary[]])
 }
 
-const humanizeMetric = (metric: string) => metric.replace(/_(deg|pct)$/, '').replaceAll('_', ' ')
-
 function spokenFeedback(detail: SessionDetail, focusedMetric: string | null): string {
-  const analysis = detail.metrics
-  if (!analysis) return ''
-
-  if (focusedMetric) {
-    const label = humanizeMetric(focusedMetric)
-    const tip = analysis.tips.find((item) => item.metric === focusedMetric)
-    if (tip) return `Your ${label} needs attention. ${tip.text}`
-
-    const metric = analysis.metrics.find((item) => item.name === focusedMetric)
-    if (!metric || metric.value === null) {
-      return `I could not measure your ${label} reliably on this swing.`
-    }
-    const result =
-      metric.in_range === true
-        ? 'is in your target range'
-        : metric.in_range === false
-          ? 'is outside your target range'
-          : 'has been recorded'
-    return `Your ${label} was ${metric.value} ${metric.unit}, and ${result}. Keep working on consistent ${label}.`
-  }
-
-  if (analysis.tips.length > 0) {
-    const tip = analysis.tips[0]
-    return `The main issue is ${humanizeMetric(tip.metric)}. ${tip.text}`
-  }
-  return allMeasuredMetricsInRange(analysis.metrics)
-    ? 'Nice swing. Everything measured was in range.'
-    : 'There are no actionable tips for this swing.'
+  return detail.metrics ? spokenMetricFeedback(detail.metrics, focusedMetric) : ''
 }
 
 export default function App() {
@@ -83,8 +55,8 @@ export default function App() {
   const [voiceEnabled, setVoiceEnabled] = useState(
     () => localStorage.getItem('voice-feedback') !== 'off',
   )
-  const [focusedMetric, setFocusedMetric] = useState<string | null>(
-    () => localStorage.getItem('voice-metric-focus'),
+  const [focusedMetric, setFocusedMetric] = useState<string | null>(() =>
+    localStorage.getItem('voice-metric-focus'),
   )
   const voiceEnabledRef = useRef(voiceEnabled)
   const focusedMetricRef = useRef(focusedMetric)
@@ -205,7 +177,11 @@ export default function App() {
   const focusMetric = useCallback(
     (metric: string | null) => {
       setFocusedMetric(metric)
-      speak(metric ? `Voice feedback focused on ${humanizeMetric(metric)}.` : 'Voice feedback will cover the main issue.')
+      speak(
+        metric
+          ? `Voice feedback focused on ${formatMetricName(metric)}.`
+          : 'Voice feedback will cover the main issue.',
+      )
     },
     [speak],
   )
@@ -230,13 +206,19 @@ export default function App() {
           {theme === 'dark' ? 'light mode' : 'dark mode'}
         </button>
         <nav className="view-nav">
-          <button className={view === 'sessions' ? 'active' : ''} onClick={() => setView('sessions')}>
+          <button
+            className={view === 'sessions' ? 'active' : ''}
+            onClick={() => setView('sessions')}
+          >
             sessions
           </button>
           <button className={view === 'stats' ? 'active' : ''} onClick={() => setView('stats')}>
             stats
           </button>
-          <button className={view === 'calibrate' ? 'active' : ''} onClick={() => setView('calibrate')}>
+          <button
+            className={view === 'calibrate' ? 'active' : ''}
+            onClick={() => setView('calibrate')}
+          >
             calibrate
           </button>
           <button
@@ -245,7 +227,10 @@ export default function App() {
           >
             system check
           </button>
-          <button className={view === 'settings' ? 'active' : ''} onClick={() => setView('settings')}>
+          <button
+            className={view === 'settings' ? 'active' : ''}
+            onClick={() => setView('settings')}
+          >
             settings
           </button>
         </nav>

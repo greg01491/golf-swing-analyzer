@@ -93,8 +93,37 @@ calibration:
   checkerboard_square_size_mm: 28.4  # measured on Greg's print with a ruler
   # Straight-line distance between the two camera lenses in the current rig.
   camera_distance_m: 3.115
+  validation:
+    max_lens_rms_px: 5.0
+    max_median_error_px: 5.0
+    max_tail_error_px: 15.0
+    min_coverage: 0.8
+    min_positive_depth: 0.95
+    min_fit_correspondences: 100
+    min_heldout_correspondences: 100
+    min_heldout_frames: 20
+    heldout_fraction: 0.25
+    partition_gap_s: 0.25
+    max_reference_error_px: 2.0
+    max_normal_difference_deg: 3.0
+    max_length_relative_error: 0.05
+    min_board_span_px: 80.0
 
 metrics:
+  range_definition_version: 2
+  turn_filter_window_s: 0.05
+  address_window_s: 0.1
+  turn_outlier_deg: 20.0
+  min_projected_width_m: 0.02
+  min_supported_fraction: 0.8
+  frozen_tolerance_m: 0.0001
+  hand_speed_window_s: 0.1
+  max_marker_speed_ms: 20.0
+  max_limb_length_ratio: 1.5
+  min_pelvis_height_m: 0.3
+  max_pelvis_height_m: 1.5
+  held_observation_motion_px: 2.0
+  marker_outlier_distance_m: 0.05
   # Per-metric reference ranges; edit freely. Units in degrees unless noted.
   # Metrics without a range here are still computed, just never flagged.
   reference_ranges:
@@ -115,8 +144,8 @@ metrics:
     # Posture & stability (lower-is-better faults; range is the "acceptable" band)
     head_movement_cm: {min: 0, max: 10}
     spine_angle_change_deg: {min: 0, max: 10}
-    early_extension_cm: {min: 0, max: 8}
-    reverse_spine_deg: {min: 0, max: 12}
+    early_extension_cm: {min: -8, max: 8}
+    reverse_spine_deg: {min: -90, max: 12}
     # Body angles
     knee_flex_deg: {min: 145, max: 172}
     lead_arm_deg: {min: 160, max: 180}

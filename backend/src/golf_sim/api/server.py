@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import importlib
+import json
 import logging
 import os
 import threading
@@ -235,7 +236,9 @@ def create_app(
     # instead of thrashing the machine while it's also buffering cameras.
     processing_lock = threading.Lock()
 
-    def start_processing(session_dir: Path) -> None:
+    def start_processing(
+        session_dir: Path, analysis_only: bool = False, reconstruct_bundle: str | None = None
+    ) -> None:
         session_id = session_dir.name
         if processing.get(session_id) == "running":
             return
@@ -243,7 +246,24 @@ def create_app(
         def run() -> None:
             with processing_lock:
                 try:
-                    finalize = processor(session_dir, config)
+                    if reconstruct_bundle is not None:
+                        from golf_sim.analysis.cli import analyze_session
+                        from golf_sim.pose.reconstruct import run_reconstruction
+                        from golf_sim.pose.reconstruction_evidence import (
+                            prepare_explicit_reconstruction,
+                        )
+
+                        prepare_explicit_reconstruction(session_dir, config, reconstruct_bundle)
+                        run_reconstruction(session_dir, config)
+                        analyze_session(session_dir, config)
+                        finalize = None
+                    elif analysis_only:
+                        from golf_sim.analysis.cli import analyze_session
+
+                        analyze_session(session_dir, config)
+                        finalize = None
+                    else:
+                        finalize = processor(session_dir, config)
                     processing[session_id] = "done"
                     if finalize is not None:
                         try:
@@ -348,9 +368,59 @@ def create_app(
         start_processing(session_dir)
         return {"status": processing.get(session_id, "running")}
 
+    @app.post("/api/sessions/{session_id}/reconstruct")
+    def reconstruct_session(session_id: str, body: dict):
+        from golf_sim.pose.calibration_bundle import (
+            camera_signatures,
+            compare_signatures,
+            load_active_bundle,
+        )
+        from golf_sim.pose.project import landmark_json_dirs
+
+        try:
+            directory = session_dir_for(data_dir, session_id)
+        except FileNotFoundError as error:
+            raise HTTPException(404, str(error)) from error
+        bundle = load_active_bundle(resolve_state_path(config.calibration.dir))
+        if bundle is None or body.get("bundle_id") != bundle["bundle_id"]:
+            raise HTTPException(409, "explicit selection of the accepted active bundle is required")
+        metadata = json.loads((directory / "metadata.json").read_text())
+        compatibility = compare_signatures(
+            bundle["signatures"], camera_signatures(config, metadata)
+        )
+        if compatibility["status"] != "compatible":
+            raise HTTPException(
+                409,
+                "saved capture compatibility is not established: "
+                + "; ".join(compatibility["reasons"]),
+            )
+        if not landmark_json_dirs(directory / "pose2sim"):
+            raise HTTPException(
+                409, "saved 2D pose observations are missing; full processing is required"
+            )
+        start_processing(directory, reconstruct_bundle=bundle["bundle_id"])
+        return {"status": processing.get(session_id, "running")}
+
     @app.get("/api/sessions/{session_id}/process")
     def process_status(session_id: str):
         return {"status": processing.get(session_id, "idle")}
+
+    @app.post("/api/sessions/{session_id}/reanalyze")
+    def reanalyze_session(session_id: str):
+        from golf_sim.analysis.cli import pick_trc
+
+        try:
+            session_dir = session_dir_for(data_dir, session_id)
+        except FileNotFoundError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        try:
+            pick_trc(session_dir)
+        except FileNotFoundError as exc:
+            raise HTTPException(
+                409, "saved 3D landmarks are unavailable; reprocess the swing first"
+            ) from exc
+        start_processing(session_dir, analysis_only=True)
+        return {"status": processing.get(session_id, "running")}
 
     @app.get("/api/config")
     def get_config():
@@ -422,8 +492,17 @@ def create_app(
         from golf_sim.pose.wizard import mark_calibration_shot
 
         kind = body.get("kind")
-        if kind not in ("intrinsics", "extrinsics"):
-            raise HTTPException(422, "kind must be 'intrinsics' or 'extrinsics'")
+        if kind not in ("intrinsics", "extrinsics", "ground"):
+            raise HTTPException(422, "kind must be 'intrinsics', 'extrinsics' or 'ground'")
+        if kind == "ground":
+            from golf_sim.pose.calibration_bundle import load_active_bundle
+
+            if body.get("level_confirmed") is not True or body.get("target_confirmed") is not True:
+                raise HTTPException(
+                    422, "confirm the board is level and its marked target edge is aligned"
+                )
+            if load_active_bundle(resolve_state_path(config.calibration.dir)) is None:
+                raise HTTPException(409, "accept camera geometry before ground-reference capture")
         for_camera = body.get("camera")
         valid_roles = {dev.role for dev in config.cameras.devices}
         if for_camera is not None and for_camera not in valid_roles:
@@ -435,7 +514,9 @@ def create_app(
             logger.exception("calibration capture failed")
             raise HTTPException(500, f"capture failed: {exc}") from exc
         try:
-            marker = mark_calibration_shot(session_dir, kind, config, for_camera=for_camera)
+            marker = mark_calibration_shot(
+                session_dir, kind, config, for_camera=for_camera, ground_confirmations=body
+            )
         except Exception:
             logger.exception("calibration board analysis failed for %s", session_dir.name)
             raise
@@ -460,6 +541,9 @@ def create_app(
 
         return {"deleted": clear_calibration_shots(data_dir)}
 
+    calib_cancelled = threading.Event()
+    calibration_job = threading.Lock()
+
     @app.post("/api/calibration/compute")
     def calibration_compute(body: dict):
         from golf_sim.pose.wizard import compute_rig_calibration
@@ -467,7 +551,7 @@ def create_app(
         distance = body.get("camera_distance_m")
         if not isinstance(distance, (int, float)) or not 0.3 < distance < 20:
             raise HTTPException(422, "camera_distance_m must be a number in metres (0.3-20)")
-        if calib_compute["state"] == "running":
+        if not calibration_job.acquire(blocking=False):
             return calib_compute
 
         def run() -> None:
@@ -477,13 +561,33 @@ def create_app(
                     config,
                     float(distance),
                     on_stage=lambda msg: calib_compute.update(stage=msg),
+                    cancelled=calib_cancelled.is_set,
                 )
                 calib_compute.update(state="done", result=result)
             except Exception as exc:
                 calib_compute.update(state="error", error=str(exc))
+                if getattr(exc, "validation_report", None) is not None:
+                    calib_compute["validation"] = exc.validation_report
+                from golf_sim.pose.calibration_bundle import atomic_json
+
+                try:
+                    atomic_json(
+                        resolve_state_path(config.calibration.dir) / "last-candidate.json",
+                        {
+                            "status": "failed",
+                            "error": str(exc),
+                            "validation": getattr(exc, "validation_report", None),
+                            "stage": calib_compute.get("stage"),
+                        },
+                    )
+                except OSError:
+                    logger.exception("could not retain failed candidate report")
                 logger.exception("calibration computation failed")
+            finally:
+                calibration_job.release()
 
         calib_compute.clear()
+        calib_cancelled.clear()
         calib_compute.update(state="running", stage="starting")
         threading.Thread(target=run, daemon=True, name="rig-calibration").start()
         return calib_compute
@@ -492,11 +596,111 @@ def create_app(
     def calibration_compute_status():
         return calib_compute
 
+    @app.delete("/api/calibration/compute")
+    def calibration_compute_cancel():
+        from golf_sim.pose.calibration_bundle import activation_guard
+
+        with activation_guard():
+            if (
+                calib_compute["state"] == "running"
+                and calib_compute.get("stage") != "camera calibration accepted"
+            ):
+                calib_cancelled.set()
+        return calib_compute
+
+    ground_compute: dict = {"state": "idle"}
+    ground_cancelled = threading.Event()
+    ground_job = threading.Lock()
+
+    @app.post("/api/calibration/ground")
+    def ground_reference_compute(body: dict):
+        from golf_sim.pose.ground_reference import compute_ground_reference
+
+        session_ids = body.get("session_ids")
+        origins = body.get("origins")
+        side = body.get("golfer_side")
+        if (
+            not isinstance(session_ids, list)
+            or not all(
+                isinstance(identity, str) and Path(identity).name == identity
+                for identity in session_ids
+            )
+            or len(set(session_ids)) < 2
+            or not isinstance(origins, dict)
+            or isinstance(side, bool)
+            or side not in (-1, 1)
+        ):
+            raise HTTPException(
+                422,
+                "two reference captures, per-camera marked origins and golfer side are required",
+            )
+        if not ground_job.acquire(blocking=False):
+            return ground_compute
+
+        def solve() -> None:
+            try:
+                result = compute_ground_reference(
+                    data_dir, config, session_ids, origins, side, cancelled=ground_cancelled.is_set
+                )
+                ground_compute.update(state="done", result=result)
+            except Exception as error:
+                ground_compute.update(state="error", error=str(error))
+                logger.exception("ground reference validation failed")
+            finally:
+                ground_job.release()
+
+        ground_compute.clear()
+        ground_cancelled.clear()
+        ground_compute.update(state="running")
+        threading.Thread(target=solve, daemon=True, name="ground-reference").start()
+        return ground_compute
+
+    @app.get("/api/calibration/ground")
+    def ground_reference_status():
+        return ground_compute
+
+    @app.delete("/api/calibration/ground")
+    def ground_reference_cancel():
+        from golf_sim.pose.calibration_bundle import activation_guard
+
+        with activation_guard():
+            if ground_compute["state"] == "running":
+                ground_cancelled.set()
+        return ground_compute
+
+    @app.get("/api/calibration/shots/{session_id}/ground-preview/{camera}")
+    def ground_reference_preview(session_id: str, camera: str):
+        if camera not in ("camera_1", "camera_2"):
+            raise HTTPException(404, "unknown camera role")
+        try:
+            directory = session_dir_for(data_dir, session_id)
+        except FileNotFoundError as error:
+            raise HTTPException(404, str(error)) from error
+        image = directory / f"ground-preview-{camera}.jpg"
+        if not image.exists():
+            raise HTTPException(404, "board preview unavailable; recapture with visible corners")
+        return FileResponse(image, media_type="image/jpeg")
+
     @app.get("/api/calibration/info")
     def calibration_info():
-        from golf_sim.pose.calibrate import calibration_status
+        from golf_sim.pose.calibrate import calibration_status, last_candidate_report
 
         status = calibration_status(config.calibration)
+        from golf_sim.pose.calibration_bundle import (
+            camera_signatures,
+            compare_signatures,
+            load_active_bundle,
+        )
+
+        try:
+            bundle = load_active_bundle(resolve_state_path(config.calibration.dir))
+        except (OSError, ValueError, KeyError):
+            bundle = None
+        compatibility = (
+            compare_signatures(bundle["signatures"], camera_signatures(config))
+            if bundle
+            else {"status": "legacy-unverified", "reasons": ["capture evidence is unavailable"]}
+        )
         return {
             "exists": status.exists,
             "file": str(status.file) if status.file else None,
@@ -504,6 +708,13 @@ def create_app(
             "stale": status.stale,
             "reprojection_error_px": status.reprojection_error_px,
             "broken": status.broken,
+            "validation_status": status.validation_status,
+            "validation": status.validation,
+            "bundle_id": status.bundle_id,
+            "ground_status": status.ground_status,
+            "compatibility": compatibility,
+            "reasons": status.reasons or [],
+            "last_candidate": last_candidate_report(config.calibration),
         }
 
     @app.get("/api/calibration/board.png")

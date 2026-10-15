@@ -23,7 +23,11 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from golf_sim.analysis.frame_of_reference import horizontal_angle_series, vertical_axis
+from golf_sim.analysis.frame_of_reference import (
+    AnalysisReference,
+    horizontal_angle_series,
+    vertical_axis,
+)
 from golf_sim.analysis.p_positions import Handedness, lead_markers
 from golf_sim.analysis.phases import SwingPhases
 from golf_sim.config import Club, MetricsConfig
@@ -199,8 +203,32 @@ def build_all_ideal_frames(
     metrics_config: MetricsConfig,
     handedness: Handedness = "right",
     club: Club | None = None,
+    reference: AnalysisReference | None = None,
 ) -> dict[str, dict[str, np.ndarray]]:
     """{P-position name: {marker_name: xyz}} for every detected P-position."""
+    if reference is not None:
+        if reference.up is None:
+            return {name: {} for name in p_position_frames}
+        horizontal = reference.target
+        if horizontal is None:
+            horizontal = (
+                seq.marker("LAnkle")[phases.address_frame]
+                - seq.marker("RAnkle")[phases.address_frame]
+            )
+            horizontal -= np.dot(horizontal, reference.up) * reference.up
+        length = np.linalg.norm(horizontal)
+        if not np.isfinite(length) or length <= np.finfo(float).eps:
+            return {name: {} for name in p_position_frames}
+        horizontal = horizontal / length
+        basis = np.column_stack((horizontal, np.cross(reference.up, horizontal), reference.up))
+        local = LandmarkSequence(seq.marker_names, seq.times, seq.coords @ basis)
+        local_frames = build_all_ideal_frames(
+            local, phases, p_position_frames, metrics_config, handedness=handedness, club=club
+        )
+        return {
+            name: {marker: basis @ point for marker, point in frame.items()}
+            for name, frame in local_frames.items()
+        }
     proportions = measure_proportions(seq, phases.address_frame, handedness)
     shoulder_mid = _target_midpoint(metrics_config, "shoulder_turn_deg", default=90.0, club=club)
     hip_mid = _target_midpoint(metrics_config, "hip_turn_deg", default=45.0, club=club)

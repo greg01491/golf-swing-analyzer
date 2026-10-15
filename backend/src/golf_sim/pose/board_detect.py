@@ -87,6 +87,10 @@ def find_board_corners(
     return found
 
 
+def detect_board_corners(gray: np.ndarray, pattern: tuple[int, int]) -> np.ndarray | None:
+    return _detect_board(gray, pattern)
+
+
 def count_board_in_clip(clip: Path, corners_nb: tuple[int, int], samples: int = 6) -> int:
     """Cheap wizard feedback: in how many of `samples` frames is the board
     fully visible/detectable?"""

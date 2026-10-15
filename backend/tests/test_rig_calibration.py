@@ -1,6 +1,9 @@
 """Validates the essential-matrix extrinsic recovery against synthetic
 cameras with known ground-truth geometry."""
 
+import json
+from pathlib import Path
+
 import cv2
 import numpy as np
 import pytest
@@ -36,7 +39,7 @@ def _synthetic_scene(n=600, seed=7):
     return pts
 
 
-def _synthetic_skeleton(n_frames=40, height_m=1.88, seed=3):
+def _synthetic_skeleton(n_frames=100, height_m=1.88, seed=3):
     """HALPE_26 skeletons over several frames, with a known head-to-feet size.
 
     Head sits at +height/2 and every foot joint at -height/2, so the true
@@ -110,7 +113,9 @@ def test_estimated_height_measures_the_person_not_the_swept_volume(monkeypatch, 
         lambda pose_dir, confidence_threshold=0.6: corr,
     )
 
-    _, _, _, _, height = calibrate_extrinsics(tmp_path, cam1, cam2, camera_distance_m=2.5)
+    _, _, _, _, height = calibrate_extrinsics(
+        tmp_path, cam1, cam2, camera_distance_m=2.5, frame_rate_hz=60
+    )
 
     assert height is not None
     assert abs(height - 1.88) < 0.06, f"expected ~1.88m, got {height:.3f}m"
@@ -138,8 +143,12 @@ def test_estimated_height_is_none_for_an_unknown_skeleton(monkeypatch, tmp_path)
         ),
     )
 
-    _, _, _, _, height = calibrate_extrinsics(tmp_path, cam1, cam2, camera_distance_m=2.5)
-    assert height is None
+    assert (
+        rig_calibration._estimate_standing_height(pts3, np.zeros(len(pts3)), np.arange(len(pts3)))
+        is None
+    )
+    with pytest.raises(CalibrationDataError, match="held-out"):
+        calibrate_extrinsics(tmp_path, cam1, cam2, camera_distance_m=2.5, frame_rate_hz=60)
 
 
 def test_extrinsics_recover_known_camera_geometry(monkeypatch, tmp_path):
@@ -150,25 +159,16 @@ def test_extrinsics_recover_known_camera_geometry(monkeypatch, tmp_path):
     t_dir = np.array([-0.85, 0.05, 0.52])
     t_true = t_dir / np.linalg.norm(t_dir) * 2.5
 
-    pts3 = _synthetic_scene()
-    proj1, _ = cv2.projectPoints(pts3, np.zeros(3), np.zeros(3), cam1.matrix, cam1.distortions)
-    proj2, _ = cv2.projectPoints(
-        pts3, cv2.Rodrigues(R_true)[0], t_true, cam2.matrix, cam2.distortions
-    )
+    correspondences = _skeleton_correspondences(_synthetic_skeleton(), cam1, cam2, R_true, t_true)
 
     monkeypatch.setattr(
         rig_calibration,
         "_load_keypoint_correspondences",
-        lambda pose_dir, confidence_threshold=0.6: (
-            proj1.reshape(-1, 2),
-            proj2.reshape(-1, 2),
-            np.zeros(len(pts3), dtype=int),
-            np.arange(len(pts3)),
-        ),
+        lambda pose_dir, confidence_threshold=0.6: correspondences,
     )
 
     rot, trans, n_points, err, height = calibrate_extrinsics(
-        tmp_path, cam1, cam2, camera_distance_m=2.5
+        tmp_path, cam1, cam2, camera_distance_m=2.5, frame_rate_hz=60
     )
 
     R_est = cv2.Rodrigues(rot)[0]
@@ -193,6 +193,296 @@ def test_extrinsics_reject_too_few_points(monkeypatch, tmp_path):
     )
     with pytest.raises(CalibrationDataError, match="correspondences"):
         calibrate_extrinsics(tmp_path, cam, cam, camera_distance_m=2.5)
+
+
+def test_correspondences_match_frame_identity_when_one_camera_drops_a_file(tmp_path):
+    for role, frames in (("camera_1", (0, 1, 2)), ("camera_2", (0, 2))):
+        directory = tmp_path / f"{role}_json"
+        directory.mkdir()
+        for frame in frames:
+            keypoints = np.ones((26, 3))
+            keypoints[:, 0] = frame * 10
+            payload = {"people": [{"pose_keypoints_2d": keypoints.ravel().tolist()}]}
+            (directory / f"{role}_{frame:06d}.json").write_text(json.dumps(payload))
+
+    first, second, frame_ids, _ = rig_calibration._load_keypoint_correspondences(tmp_path)
+
+    assert set(frame_ids) == {0, 2}
+    assert np.array_equal(first[:, 0], second[:, 0])
+
+
+def test_good_fitting_inliers_cannot_hide_bad_heldout_geometry(monkeypatch, tmp_path):
+    cam1, cam2 = _intr(), _intr(f=850)
+    rotation = cv2.Rodrigues(np.array([0.0, np.radians(80), 0.0]))[0]
+    translation = np.array([-0.85, 0.05, 0.52])
+    translation = translation / np.linalg.norm(translation) * 2.5
+    first, second, frame_ids, joint_ids = _skeleton_correspondences(
+        _synthetic_skeleton(n_frames=100), cam1, cam2, rotation, translation
+    )
+    second[frame_ids >= 75, 1] += 80
+    monkeypatch.setattr(
+        rig_calibration,
+        "_load_keypoint_correspondences",
+        lambda *args, **kwargs: (first, second, frame_ids, joint_ids),
+    )
+
+    with pytest.raises(CalibrationDataError, match="held-out"):
+        calibrate_extrinsics(tmp_path, cam1, cam2, camera_distance_m=2.5, frame_rate_hz=60)
+
+
+def test_failed_bundle_cannot_replace_active_calibration(tmp_path):
+    from golf_sim.pose.calibration_bundle import load_active_bundle, publish_bundle
+
+    calibration = tmp_path / "candidate.toml"
+    calibration.write_text("camera evidence")
+    publish_bundle(tmp_path, calibration, {"status": "accepted"}, {})
+    before = (tmp_path / "active.json").read_bytes()
+    with pytest.raises(ValueError, match="independently accepted"):
+        publish_bundle(tmp_path, calibration, {"status": "failed"}, {})
+    assert (tmp_path / "active.json").read_bytes() == before
+    assert load_active_bundle(tmp_path)["validation"]["status"] == "accepted"
+
+
+def test_interrupted_activation_preserves_previous_bundle(tmp_path, monkeypatch):
+    from golf_sim.pose import calibration_bundle
+
+    candidate = tmp_path / "candidate.toml"
+    candidate.write_text("first geometry")
+    calibration_bundle.publish_bundle(tmp_path, candidate, {"status": "accepted"}, {})
+    previous = (tmp_path / "active.json").read_bytes()
+    candidate.write_text("new geometry")
+    replace = calibration_bundle.os.replace
+
+    def fail_pointer(source, target):
+        if Path(target).name == "active.json":
+            raise OSError("interrupted activation")
+        return replace(source, target)
+
+    monkeypatch.setattr(calibration_bundle.os, "replace", fail_pointer)
+    with pytest.raises(OSError, match="interrupted activation"):
+        calibration_bundle.publish_bundle(tmp_path, candidate, {"status": "accepted"}, {})
+    assert (tmp_path / "active.json").read_bytes() == previous
+
+
+def test_camera_validation_cancellation_does_not_activate_a_candidate(tmp_path):
+    from golf_sim.config import load_config
+    from golf_sim.pose.wizard import compute_rig_calibration
+
+    config = load_config()
+    with pytest.raises(CalibrationDataError, match="cancelled"):
+        compute_rig_calibration(tmp_path, config, 2.5, cancelled=lambda: True)
+
+
+def test_wizard_heldout_failure_preserves_previous_calibration(tmp_path, monkeypatch):
+    from golf_sim.config import load_config
+    from golf_sim.pose import estimate, wizard
+
+    config = load_config().model_copy(deep=True)
+    config.calibration.dir = str(tmp_path / "rig")
+    calibration_root = tmp_path / "rig"
+    calibration_root.mkdir()
+    previous = calibration_root / "Calib_rig.toml"
+    previous.write_text("previous accepted geometry")
+    shots = [{"id": "lens", "kind": "intrinsics"}, {"id": "position", "kind": "extrinsics"}]
+    for shot in shots:
+        directory = tmp_path / "sessions" / shot["id"]
+        directory.mkdir(parents=True)
+        for camera in config.cameras.devices:
+            (directory / f"{camera.role}.mp4").write_bytes(b"fixture")
+        (directory / "metadata.json").write_text(
+            json.dumps(
+                {
+                    "cameras": {
+                        camera.role: {
+                            "fps": camera.fps,
+                            "width": camera.width,
+                            "height": camera.height,
+                        }
+                        for camera in config.cameras.devices
+                    }
+                }
+            )
+        )
+    monkeypatch.setattr(wizard, "list_calibration_shots", lambda *_: shots)
+    monkeypatch.setattr(wizard, "calibrate_intrinsics", lambda *args, **kwargs: _intr())
+    monkeypatch.setattr(estimate, "run_pose_estimation", lambda *args: None)
+
+    def fail_validation(*args, **kwargs):
+        raise CalibrationDataError("held-out camera_2 shoulder coverage failed")
+
+    monkeypatch.setattr(wizard, "calibrate_extrinsics", fail_validation)
+    with pytest.raises(CalibrationDataError, match="held-out"):
+        wizard.compute_rig_calibration(tmp_path, config, 2.5)
+    assert previous.read_text() == "previous accepted geometry"
+    assert not (calibration_root / "active.json").exists()
+
+
+def test_capture_mode_difference_is_incompatible_not_proof_of_movement():
+    from golf_sim.pose.calibration_bundle import compare_signatures
+
+    original = {
+        "camera_1": {
+            "identity": "fixed-device",
+            "width": 1280,
+            "height": 720,
+            "rotation_deg": 0,
+            "requested_fps": 60,
+            "autofocus": False,
+            "focus": 0,
+        }
+    }
+    changed = {
+        "camera_1": {**original["camera_1"], "requested_fps": 120, "source_effective_fps": 110}
+    }
+    assert compare_signatures(original, changed)["status"] == "incompatible"
+    assert all("moved" not in reason for reason in compare_signatures(original, changed)["reasons"])
+
+
+def test_legacy_capture_does_not_inherit_current_camera_geometry():
+    from golf_sim.config import load_config
+    from golf_sim.pose.calibration_bundle import camera_signatures, compare_signatures
+
+    config = load_config()
+    metadata = {"cameras": {"camera_1": {"width": 1280, "height": 720, "fps": 60}}}
+    signatures = camera_signatures(config, metadata)
+    assert signatures["camera_1"]["identity"] is None
+    assert signatures["camera_1"]["rotation_deg"] is None
+    assert signatures["camera_1"]["focus"] is None
+    assert compare_signatures(signatures, signatures)["status"] == "unverified"
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("min_coverage", 1.1),
+        ("max_normal_difference_deg", 90),
+        ("partition_gap_s", -1),
+        ("min_board_span_px", 0),
+    ],
+)
+def test_validation_settings_reject_invalid_limits(field, value):
+    from golf_sim.config import CalibrationValidationConfig
+
+    with pytest.raises(ValueError):
+        CalibrationValidationConfig(**{field: value})
+
+
+def test_lens_validation_requires_independent_capture_group(monkeypatch, tmp_path):
+    from golf_sim.config import CalibrationValidationConfig
+
+    views, _, _ = _synthetic_board_views(n_good=30, n_bad=0)
+    _patch_corners(monkeypatch, views)
+    with pytest.raises(CalibrationDataError, match="independent capture"):
+        calibrate_intrinsics(
+            [tmp_path / "one.mp4"], _BOARD, _SQUARE_MM, validation=CalibrationValidationConfig()
+        )
+
+
+def test_lens_validation_reserves_whole_clips_before_fitting(monkeypatch, tmp_path):
+    from golf_sim.config import CalibrationValidationConfig
+
+    views, _, _ = _synthetic_board_views(n_good=36, n_bad=0)
+    clips = [tmp_path / f"view_{index}.mp4" for index in range(3)]
+    by_clip = {clip: views[index * 12 : (index + 1) * 12] for index, clip in enumerate(clips)}
+    monkeypatch.setattr(rig_calibration, "find_board_corners", lambda clip, _: iter(by_clip[clip]))
+    result = calibrate_intrinsics(
+        clips, _BOARD, _SQUARE_MM, validation=CalibrationValidationConfig()
+    )
+    assert result.validation["status"] == "accepted"
+    assert result.validation["fit_views"] == 24
+    assert result.validation["heldout_views"] == 12
+    assert result.validation["heldout_captures"] == [str(clips[-1])]
+
+
+def test_missing_body_region_fails_even_when_visible_points_fit(monkeypatch, tmp_path):
+    cam1, cam2 = _intr(), _intr(f=850)
+    rotation = cv2.Rodrigues(np.array([0.0, np.radians(80), 0.0]))[0]
+    translation = np.array([-0.85, 0.05, 0.52])
+    translation = translation / np.linalg.norm(translation) * 2.5
+    first, second, frame_ids, joint_ids = _skeleton_correspondences(
+        _synthetic_skeleton(), cam1, cam2, rotation, translation
+    )
+    included = ~((frame_ids >= 75) & np.isin(joint_ids, [5, 6]))
+    monkeypatch.setattr(
+        rig_calibration,
+        "_load_keypoint_correspondences",
+        lambda *args: (first[included], second[included], frame_ids[included], joint_ids[included]),
+    )
+    with pytest.raises(CalibrationDataError, match="shoulders coverage"):
+        calibrate_extrinsics(tmp_path, cam1, cam2, 2.5, frame_rate_hz=60)
+
+
+def test_negative_depth_camera_geometry_is_rejected():
+    from golf_sim.config import CalibrationValidationConfig
+
+    camera = _intr()
+    points = np.tile(np.array([0.2, 0.1, 3.0]), (26, 1))
+    translation = np.array([-2.5, 0.0, 0.0])
+    first, _ = cv2.projectPoints(
+        points, np.zeros(3), np.zeros(3), camera.matrix, camera.distortions
+    )
+    second, _ = cv2.projectPoints(
+        points, np.zeros(3), translation, camera.matrix, camera.distortions
+    )
+    report = rig_calibration.evaluate_camera_geometry(
+        first.reshape(-1, 2),
+        second.reshape(-1, 2),
+        np.arange(26),
+        camera,
+        camera,
+        np.zeros(3),
+        -translation,
+        CalibrationValidationConfig(),
+    )
+    assert report["status"] == "failed"
+    assert report["positive_depth_coverage"] == 0
+
+
+def test_ground_reference_uses_independent_measured_board_placements():
+    from golf_sim.config import CalibrationValidationConfig
+    from golf_sim.pose.ground_reference import solve_ground_reference
+
+    camera = _intr()
+    shift = np.array([-1.5, 0.0, 0.0])
+    calibration = {
+        role: {
+            "matrix": camera.matrix.tolist(),
+            "distortions": [-0.2, 0.05, 0.0, 0.0],
+            "rotation": [0.0, 0.0, 0.0],
+            "translation": translation.tolist(),
+        }
+        for role, translation in (("camera_1", np.zeros(3)), ("camera_2", shift))
+    }
+    grid = np.zeros((28, 3))
+    grid[:, :2] = np.mgrid[0:4, 0:7].T.reshape(-1, 2) * 0.06
+    observations = []
+    for capture in ("first", "repeat"):
+        points = grid + np.array([0.0, 0.0 if capture == "first" else 0.1, 2.4])
+        for frame in range(6):
+            observation = {"capture": capture, "frame": frame}
+            for role in calibration:
+                projected, _ = cv2.projectPoints(
+                    points,
+                    np.zeros(3),
+                    np.asarray(calibration[role]["translation"]),
+                    camera.matrix,
+                    np.asarray(calibration[role]["distortions"]),
+                )
+                observation[role] = projected.reshape(-1, 2)
+            observations.append(observation)
+    settings = CalibrationValidationConfig()
+    reference = solve_ground_reference(calibration, observations, _BOARD, 0.06, 1, settings)
+    assert reference["status"] == "accepted"
+    assert reference["up"] == pytest.approx([0, 0, -1], abs=0.0001)
+    assert reference["target"] == pytest.approx([1, 0, 0], abs=0.0001)
+    assert reference["ball"] == pytest.approx([0, -1, 0], abs=0.0001)
+    basis = np.array([reference["up"], reference["target"], reference["ball"]])
+    assert basis @ basis.T == pytest.approx(np.eye(3), abs=1e-9)
+    assert reference["heldout_captures"] == ["repeat"]
+    with pytest.raises(CalibrationDataError, match="measured board lengths"):
+        solve_ground_reference(calibration, observations, _BOARD, 0.03, 1, settings)
+    with pytest.raises(CalibrationDataError, match="two independent"):
+        solve_ground_reference(calibration, observations[:6], _BOARD, 0.06, 1, settings)
 
 
 def test_intrinsics_reject_insufficient_views(tmp_path):

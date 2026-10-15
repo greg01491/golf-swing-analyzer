@@ -17,7 +17,10 @@ from pathlib import Path
 
 from golf_sim.config import Config
 from golf_sim.pose.calibrate import install_calibration
+from golf_sim.pose.calibration_bundle import activation_guard
+from golf_sim.pose.lens_adapter import consistent_lens_reprojection
 from golf_sim.pose.project import landmark_json_dirs
+from golf_sim.pose.reconstruction_evidence import snapshot_bundle, write_reconstruction_evidence
 
 
 @dataclass
@@ -79,7 +82,9 @@ def run_reconstruction(session_dir: Path, config: Config) -> ReconstructionResul
             "golf_sim.pose.estimate first"
         )
 
-    install_calibration(project_dir, config.calibration)
+    with activation_guard():
+        snapshot = snapshot_bundle(session_dir, config)
+        install_calibration(project_dir, config.calibration)
 
     pose2sim_config = {
         "project": {
@@ -102,9 +107,12 @@ def run_reconstruction(session_dir: Path, config: Config) -> ReconstructionResul
             # We don't surface these per-keypoint debug plots anywhere.
             "save_filt_plots": False,
         },
+        "triangulation": {"undistort_points": True},
     }
-    Pose2Sim.personAssociation(pose2sim_config)
-    Pose2Sim.triangulation(pose2sim_config)
+    observation_support: list[bool] = []
+    with consistent_lens_reprojection(observation_support):
+        Pose2Sim.personAssociation(pose2sim_config)
+        Pose2Sim.triangulation(pose2sim_config)
     Pose2Sim.filtering(pose2sim_config)
 
     result = ReconstructionResult(project_dir=project_dir, trc_files=trc_files(project_dir))
@@ -113,4 +121,7 @@ def run_reconstruction(session_dir: Path, config: Config) -> ReconstructionResul
             f"triangulation produced no .trc output under {project_dir / 'pose-3d'} -- "
             "check the Pose2Sim logs above"
         )
+    write_reconstruction_evidence(
+        session_dir, config, snapshot, result.trc_files, observation_support
+    )
     return result

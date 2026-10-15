@@ -48,21 +48,24 @@ Deliver a working local pipeline: mic-triggered dual-camera capture → 3D pose 
 - **Exit criteria:** a captured swing produces a 3D landmark sequence that visibly matches the recorded motion when plotted/played back, **and** a real-footage check confirms the down-the-line + face-on pair isn't losing key joints to self-occlusion during the swing (OQ4) — if it is, revisit rig angle before locking it in.
 
 ### Phase 5 — Swing Metrics Engine
+- Calibration repair prerequisite: independently held-out camera validation, immutable compatible bundles, consistent lens correction, pre-fill observation provenance, and measured ground/target references must precede claims of physical turn accuracy. Follow `docs/calibration-validation.md`; software checks and wizard completion alone do not satisfy hardware acceptance.
 - Define the finalized 19-metric list: turn/tilt/separation, tempo and phase durations, sway/rotation, posture/stability, body angles, hand-speed proxy, and body-pose hand-path plane proxy.
 - Implement metric computation over the swing window.
-- Add configurable reference ranges for every shipped metric, with club-profile overrides for club-dependent values.
-- **Exit criteria:** given a 3D landmark sequence, output a metrics report in which every finite metric has a target range and in/out-of-range flag.
+- Use shared vector geometry, per-metric dependency evidence, circular robust turn peaks, signed anatomical directions and versioned definitions; estimates and unavailable data must not become validated coaching.
+- Add definition-compatible configurable ranges with club overrides, and preserve legacy files until explicit saved-landmark reanalysis.
+- **Exit criteria:** all 19 entries carry honest confidence and only valid compatible measurements receive target verdicts. Synthetic regressions pass, and independent recorded-video accuracy acceptance is documented separately; corrupt recordings are rejected rather than assigned guessed corrected values.
 
 ### Phase 6 — Tips Engine
 - Rule-based mapping from flagged metrics → direction-specific plain-English tips, including timing, hand-speed, and qualified body-pose hand-path advice (start simple/rule-based; leave room for a smarter model later).
 - Select/prioritize top N tips per swing.
-- Distinguish "no actionable tips" from the stronger claim that every measured metric is in range.
+- Distinguish incomplete assessment and "no actionable tips" from the stronger claim that all 19 metrics are valid, compatibly ranged and in range.
 - **Exit criteria:** given a metrics report, output a ranked list of tips and a truthful empty-state summary.
 
 ### Phase 7 — Review UI
 - Session browser (list of past swings).
 - Playback view: video + 3D skeleton animation, synced.
 - Metrics + tips panel.
+- Confidence-aware review, speech and comparable history; legacy results stay inspectable without current verdicts or coaching, with explicit saved-3D reanalysis.
 - Settings screens for all configurable parameters (§7 of spec).
 - **Exit criteria:** user can record a real swing, wait for processing, then browse to it and see video, skeleton, metrics, and tips together.
 

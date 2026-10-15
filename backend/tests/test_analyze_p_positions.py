@@ -1,9 +1,16 @@
 """Integration test: analyze_session's real output includes usable
 p_positions + ideal_frame data, not just the isolated unit pieces."""
 
+import hashlib
 import json
 
-from golf_sim.analysis.cli import analyze_session
+import numpy as np
+
+from golf_sim.analysis.cli import (
+    _marker_observation_support,
+    _reference_for_session,
+    analyze_session,
+)
 from golf_sim.config import AnalysisConfig, MetricsConfig, ReferenceRange
 
 
@@ -62,3 +69,98 @@ def test_analyze_session_writes_p_positions_with_ideal_frames(tmp_path, syntheti
         assert isinstance(p["detected"], bool)
         assert "LShoulder" in p["ideal_frame"]
         assert len(p["ideal_frame"]["LShoulder"]) == 3
+
+
+def test_reference_must_match_ground_provenance_and_trc(tmp_path, synthetic_swing_full):
+    path = tmp_path / "swing.trc"
+    _write_trc(synthetic_swing_full, path)
+    evidence = {
+        "source": "calibrated_ground",
+        "validated": True,
+        "up": [0, 0, 1],
+        "source_trc_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+    }
+    reference = _reference_for_session(
+        synthetic_swing_full, {"analysis_reference": evidence}, path, "right"
+    )
+    assert reference.status != "valid"
+    assert reference.source != "calibrated_ground"
+
+    evidence["source"] = "checkerboard"
+    assert (
+        _reference_for_session(
+            synthetic_swing_full, {"analysis_reference": evidence}, path, "right"
+        ).status
+        != "valid"
+    )
+    evidence["source"] = "calibrated_ground"
+    evidence["source_trc_sha256"] = "another-session"
+    assert (
+        _reference_for_session(
+            synthetic_swing_full, {"analysis_reference": evidence}, path, "right"
+        ).status
+        != "valid"
+    )
+
+
+def test_camera_motion_contradicts_held_head_but_not_observed_stillness(
+    tmp_path, synthetic_swing_full, monkeypatch
+):
+    def observations(session_dir, camera_role, frame):
+        points = np.zeros((26, 3))
+        points[:, 0] = frame * 3
+        points[:, 2] = 1
+        return points
+
+    monkeypatch.setattr("golf_sim.analysis.cli._load_keypoints", observations)
+    support = _marker_observation_support(
+        synthetic_swing_full, tmp_path, ["camera_1", "camera_2"], _FakeConfig().metrics
+    )
+    assert not support["Head"][60]
+    assert support["LWrist"][60]
+
+    def still_observations(session_dir, camera_role, frame):
+        points = observations(session_dir, camera_role, frame)
+        points[17, :2] = 100
+        return points
+
+    monkeypatch.setattr("golf_sim.analysis.cli._load_keypoints", still_observations)
+    support = _marker_observation_support(
+        synthetic_swing_full, tmp_path, ["camera_1", "camera_2"], _FakeConfig().metrics
+    )
+    assert support["Head"][60]
+
+
+def test_cli_reports_unavailable_values_and_incomplete_assessment(tmp_path, monkeypatch, capsys):
+    from golf_sim.analysis.cli import main
+
+    output = tmp_path / "metrics.json"
+    output.write_text(
+        json.dumps(
+            {
+                "phases": {"address_frame": 0, "top_frame": 10, "impact_frame": 20},
+                "metrics": [
+                    {
+                        "name": "shoulder_turn_deg",
+                        "value": None,
+                        "unit": "deg",
+                        "status": "unavailable",
+                        "in_range": None,
+                        "range": None,
+                    }
+                ],
+                "p_positions": [],
+                "tips": [],
+            }
+        )
+    )
+    monkeypatch.setattr("golf_sim.analysis.cli.analyze_session", lambda *_: output)
+    monkeypatch.setattr("golf_sim.analysis.cli.load_config", _FakeConfig)
+    monkeypatch.setattr("sys.argv", ["analysis", str(tmp_path)])
+
+    main()
+
+    rendered = capsys.readouterr().out
+    assert "unavailable" in rendered
+    assert "assessment incomplete" in rendered
+    assert "Nice swing" not in rendered

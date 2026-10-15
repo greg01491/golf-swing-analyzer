@@ -10,12 +10,14 @@ calibration must list cameras in the same order as the session clips
 
 from __future__ import annotations
 
+import json
 import shutil
 import time
 from dataclasses import dataclass
 from pathlib import Path
 
 from golf_sim.config import CalibrationConfig, resolve_state_path
+from golf_sim.pose.calibration_bundle import load_active_bundle
 
 
 class CalibrationMissingError(RuntimeError):
@@ -34,11 +36,17 @@ class CalibrationStatus:
     age_days: float | None
     stale: bool
     reprojection_error_px: float | None = None
+    validation_status: str = "legacy-unverified"
+    bundle_id: str | None = None
+    ground_status: str = "unavailable"
+    validation: dict | None = None
+    reasons: list[str] | None = None
 
     @property
     def broken(self) -> bool:
         return (
-            self.reprojection_error_px is not None
+            self.validation_status == "failed"
+            or self.reprojection_error_px is not None
             and self.reprojection_error_px > _BROKEN_REPROJ_PX
         )
 
@@ -68,6 +76,41 @@ def _find_calib_file(rig_dir: Path) -> Path | None:
 
 def calibration_status(calibration_config: CalibrationConfig) -> CalibrationStatus:
     rig_dir = _rig_dir(calibration_config)
+    try:
+        bundle = load_active_bundle(rig_dir)
+    except (OSError, ValueError, KeyError) as error:
+        return CalibrationStatus(
+            True, None, None, False, validation_status="failed", reasons=[str(error)]
+        )
+    if bundle is not None:
+        ground_status = "unavailable"
+        reasons = []
+        if bundle.get("ground_id"):
+            from golf_sim.pose.reconstruction_evidence import load_ground_evidence
+
+            try:
+                ground_status = (
+                    "accepted"
+                    if load_ground_evidence(rig_dir, bundle) is not None
+                    else "unavailable"
+                )
+            except (OSError, ValueError, KeyError) as error:
+                ground_status = "failed"
+                reasons.append(str(error))
+        calibration = Path(bundle["calib_file"])
+        age = (time.time() - calibration.stat().st_mtime) / 86400
+        return CalibrationStatus(
+            True,
+            calibration,
+            age,
+            age > calibration_config.max_age_days,
+            _read_reprojection_error(calibration),
+            validation_status=bundle["validation"]["status"],
+            bundle_id=bundle["bundle_id"],
+            validation=bundle["validation"],
+            ground_status=ground_status,
+            reasons=reasons,
+        )
     calib_file = _find_calib_file(rig_dir) if rig_dir.is_dir() else None
     if calib_file is None:
         return CalibrationStatus(exists=False, file=None, age_days=None, stale=False)
@@ -81,10 +124,28 @@ def calibration_status(calibration_config: CalibrationConfig) -> CalibrationStat
     )
 
 
+def last_candidate_report(calibration_config: CalibrationConfig) -> dict | None:
+    path = _rig_dir(calibration_config) / "last-candidate.json"
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text())
+    except (OSError, ValueError):
+        return {
+            "status": "unverified",
+            "error": "candidate report could not be read",
+            "validation": None,
+        }
+
+
 def install_calibration(project_dir: Path, calibration_config: CalibrationConfig) -> Path:
     """Copy the rig calibration into a session project's calibration/ folder
     (where Pose2Sim's triangulation stage looks for it)."""
     status = calibration_status(calibration_config)
+    if status.validation_status == "failed":
+        raise CalibrationMissingError(
+            "calibration evidence validation failed: " + "; ".join(status.reasons or [])
+        )
     if not status.exists:
         raise CalibrationMissingError(
             f"no Calib*.toml found in {_rig_dir(calibration_config)} -- run the "
@@ -94,7 +155,14 @@ def install_calibration(project_dir: Path, calibration_config: CalibrationConfig
     target_dir.mkdir(parents=True, exist_ok=True)
     assert status.file is not None
     target = target_dir / status.file.name
-    shutil.copy2(status.file, target)
+    if target.exists():
+        if target.read_bytes() != status.file.read_bytes():
+            raise CalibrationMissingError(
+                "session calibration differs from active geometry; "
+                "explicit compatible reconstruction is required"
+            )
+    else:
+        shutil.copy2(status.file, target)
     return target
 
 

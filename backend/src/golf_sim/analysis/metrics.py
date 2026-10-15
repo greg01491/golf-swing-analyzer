@@ -1,19 +1,14 @@
-"""Swing metric computations from the 3D landmark sequence (FR16/FR17).
-
-All angles are reported as magnitudes (degrees) so they're neutral to
-handedness and to which way the calibrated axes point. Reference ranges come
-from config.yaml (metrics.reference_ranges) and are user-editable; a metric
-with no configured range is reported unflagged.
-"""
+"""Versioned swing measurements with explicit geometry and evidence requirements."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Literal
 
 import numpy as np
 
-from golf_sim.analysis.frame_of_reference import horizontal_angle_series, vertical_axis
-from golf_sim.analysis.phases import SwingPhases, detect_phases, hands_midpoint
+from golf_sim.analysis.frame_of_reference import AnalysisReference, infer_reference
+from golf_sim.analysis.phases import PhaseDetectionError, SwingPhases, detect_phases
 from golf_sim.config import Club, MetricsConfig
 from golf_sim.trc import LandmarkSequence
 
@@ -26,26 +21,36 @@ class MetricResult:
     in_range: bool | None  # None = no reference range configured
     range_min: float | None
     range_max: float | None
+    status: Literal["valid", "estimated", "unavailable"] = "valid"
+    definition_id: str = ""
+    reasons: list[str] = field(default_factory=list)
 
 
 @dataclass
 class MetricsReport:
     phases: SwingPhases
     metrics: list[MetricResult]
+    reference_frame: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
+            "analysis_version": 2,
+            "reference_frame": self.reference_frame,
             "phases": {
                 "address_frame": self.phases.address_frame,
                 "top_frame": self.phases.top_frame,
                 "impact_frame": self.phases.impact_frame,
+                "status": self.phases.status,
             },
             "metrics": [
                 {
                     "name": m.name,
-                    "value": round(m.value, 2),
+                    "value": round(m.value, 2) if np.isfinite(m.value) else None,
                     "unit": m.unit,
-                    "in_range": m.in_range,
+                    "in_range": m.in_range if m.status == "valid" else None,
+                    "definition_id": m.definition_id or f"{m.name}:2",
+                    "status": m.status,
+                    "reasons": m.reasons,
                     "range": (
                         None if m.range_min is None else {"min": m.range_min, "max": m.range_max}
                     ),
@@ -55,48 +60,66 @@ class MetricsReport:
         }
 
 
-def _spine_tilt_series(seq: LandmarkSequence) -> np.ndarray:
-    """Per-frame angle (degrees) of the hip->neck line from vertical."""
-    up_axis, up_sign = vertical_axis(seq)
-    spine = seq.marker("Neck") - seq.marker("Hip")
-    vertical_component = spine[:, up_axis] * up_sign
-    norms = np.linalg.norm(spine, axis=1)
-    with np.errstate(invalid="ignore", divide="ignore"):
-        cos_angle = np.clip(vertical_component / norms, -1.0, 1.0)
-    return np.degrees(np.arccos(cos_angle))
+def _peak_magnitude(series: np.ndarray) -> float:
+    finite = series[np.isfinite(series)]
+    return float(np.max(np.abs(finite))) if finite.size else float("nan")
 
 
-def _hip_sway_pct(seq: LandmarkSequence, phases: SwingPhases) -> tuple[float, float]:
-    """Lateral hip-center displacement at top and impact, relative to
-    address, as a percentage of stance width. Positive = away from the
-    direction the hips moved... sign is not handedness-resolved, so we
-    report magnitudes and leave direction interpretation to the tips layer.
-    """
-    up_axis, _ = vertical_axis(seq)
-    horizontal_axes = [i for i in range(3) if i != up_axis]
-
-    hip = seq.marker("Hip")[:, horizontal_axes]
-    r_ankle = seq.marker("RAnkle")[phases.address_frame, horizontal_axes]
-    l_ankle = seq.marker("LAnkle")[phases.address_frame, horizontal_axes]
-    stance_line = r_ankle - l_ankle
-    stance_width = float(np.linalg.norm(stance_line))
-    if stance_width <= 0:
-        return float("nan"), float("nan")
-    stance_dir = stance_line / stance_width
-
-    hip_rel = hip - hip[phases.address_frame]
-    sway = hip_rel @ stance_dir  # component along the stance line
-    return (
-        float(abs(sway[phases.top_frame]) / stance_width * 100),
-        float(abs(sway[phases.impact_frame]) / stance_width * 100),
+def _supported_turn(
+    seq: LandmarkSequence,
+    left: str,
+    right: str,
+    address: int,
+    config: MetricsConfig,
+    reference: AnalysisReference,
+    marker_support: dict[str, np.ndarray] | None = None,
+) -> np.ndarray:
+    angles = np.full(seq.n_frames, np.nan)
+    if reference.up is None or not all(seq.has_marker(name) for name in (left, right)):
+        return angles
+    line = seq.marker(right) - seq.marker(left)
+    body_lengths = np.linalg.norm(line, axis=1)
+    finite_lengths = body_lengths[np.isfinite(body_lengths)]
+    median_length = np.median(finite_lengths) if finite_lengths.size else float("nan")
+    length_valid = body_lengths <= median_length * config.max_limb_length_ratio
+    length_valid &= body_lengths >= median_length / config.max_limb_length_ratio
+    line = line - (line @ reference.up)[:, None] * reference.up
+    lengths = np.linalg.norm(line, axis=1)
+    supported = np.isfinite(line).all(axis=1) & (lengths >= config.min_projected_width_m)
+    supported &= length_valid
+    for marker_name in (left, right):
+        evidence = None if marker_support is None else marker_support.get(marker_name)
+        if evidence is not None:
+            if np.asarray(evidence).shape != (seq.n_frames,):
+                return angles
+            supported &= np.asarray(evidence, dtype=bool)
+    quiet = supported & (seq.times <= seq.times[address])
+    quiet &= seq.times >= seq.times[address] - config.address_window_s
+    if not quiet.any():
+        return angles
+    origin = np.median(line[quiet], axis=0)
+    if np.linalg.norm(origin) < config.min_projected_width_m:
+        return angles
+    origin /= np.linalg.norm(origin)
+    angles[supported] = np.degrees(
+        np.arctan2(np.cross(origin, line[supported]) @ reference.up, line[supported] @ origin)
     )
-
-
-def _first_marker(seq: LandmarkSequence, *names: str) -> str | None:
-    for name in names:
-        if seq.has_marker(name):
-            return name
-    return None
+    half = max(1, round(config.turn_filter_window_s * seq.fps / 2))
+    filtered = np.full_like(angles, np.nan)
+    for index, angle in enumerate(angles):
+        if not np.isfinite(angle):
+            continue
+        segment = angles[max(0, index - half) : index + half + 1]
+        finite = segment[np.isfinite(segment)]
+        if not finite.size:
+            continue
+        distances = np.abs((finite[:, None] - finite[None, :] + 180) % 360 - 180)
+        center = finite[int(np.argmin(distances.sum(axis=1)))]
+        median = center + float(np.median((finite - center + 180) % 360 - 180))
+        correction = float((median - angle + 180) % 360 - 180)
+        if abs(correction) <= config.turn_outlier_deg:
+            filtered[index] = (angle + correction + 180) % 360 - 180
+    return filtered
 
 
 def _joint_angle_series(seq: LandmarkSequence, a: str, b: str, c: str) -> np.ndarray:
@@ -110,175 +133,328 @@ def _joint_angle_series(seq: LandmarkSequence, a: str, b: str, c: str) -> np.nda
     return np.degrees(np.arccos(cos_angle))
 
 
-def _stance_basis(
-    seq: LandmarkSequence, phases: SwingPhases
-) -> tuple[list[int], np.ndarray, np.ndarray] | None:
-    """Horizontal reference frame at address, resolved to the target line.
-
-    Returns ``(horizontal_axes, target_dir, ball_dir)`` where ``target_dir`` is
-    the unit horizontal vector pointing at the target (lead foot for the given
-    handedness) and ``ball_dir`` is perpendicular to it in the horizontal plane
-    (toward/away from the ball line). Returns None if the stance is degenerate.
-    """
-    up_axis, _ = vertical_axis(seq)
-    horizontal_axes = [i for i in range(3) if i != up_axis]
-    addr = phases.address_frame
-    r_ank = seq.marker("RAnkle")[addr, horizontal_axes]
-    l_ank = seq.marker("LAnkle")[addr, horizontal_axes]
-    stance = l_ank - r_ank  # right -> left foot
-    width = float(np.linalg.norm(stance))
-    if width <= 0:
-        return None
-    target_dir = stance / width  # lead foot is the target side (assumed right-handed)
-    ball_dir = np.array([-target_dir[1], target_dir[0]])
-    return horizontal_axes, target_dir, ball_dir
-
-
-def _lateral_spine_tilt(
-    seq: LandmarkSequence, stance_dir: np.ndarray, horizontal_axes: list[int]
-) -> np.ndarray:
-    """Per-frame side-bend (degrees) of the hip->neck line toward the stance
-    (frontal-plane) direction, signed relative to vertical."""
-    up_axis, up_sign = vertical_axis(seq)
-    spine = seq.marker("Neck") - seq.marker("Hip")
-    up_component = spine[:, up_axis] * up_sign
-    lateral = spine[:, horizontal_axes] @ stance_dir
-    return np.degrees(np.arctan2(lateral, up_component))
-
-
-def _peak_wrist_speed(seq: LandmarkSequence, frame: int) -> float:
-    """Fastest wrist speed (m/s) in a ~0.1s window around ``frame``."""
-    fps = seq.fps
-    if fps <= 0 or seq.n_frames < 2:
-        return float("nan")
-    window = max(2, int(0.1 * fps))
-    best = float("nan")
-    for wrist in ("LWrist", "RWrist"):
-        if not seq.has_marker(wrist):
-            continue
-        speed = np.linalg.norm(np.diff(seq.marker(wrist), axis=0), axis=1) * fps
-        lo = max(0, frame - window)
-        hi = min(len(speed), frame + window + 1)
-        if hi <= lo:
-            continue
-        seg = speed[lo:hi]
-        seg_max = float(np.nanmax(seg)) if np.isfinite(seg).any() else float("nan")
-        if np.isfinite(seg_max) and (not np.isfinite(best) or seg_max > best):
-            best = seg_max
-    return best
-
-
 def compute_metrics(
     seq: LandmarkSequence,
     metrics_config: MetricsConfig,
     phases: SwingPhases | None = None,
     handedness: str = "right",
     club: Club | None = None,
+    reference: AnalysisReference | None = None,
+    marker_support: dict[str, np.ndarray] | None = None,
 ) -> MetricsReport:
+    reference = reference if reference is not None else infer_reference(seq, handedness)
     if phases is None:
-        phases = detect_phases(seq)
-
+        phases = detect_phases(seq, reference=reference)
     address, top, impact = phases.address_frame, phases.top_frame, phases.impact_frame
-    shoulder_turn = horizontal_angle_series(seq, "LShoulder", "RShoulder", address)
-    hip_turn = horizontal_angle_series(seq, "LHip", "RHip", address)
+    if not 0 <= address < top < impact < seq.n_frames:
+        raise PhaseDetectionError("analysis requires ordered address, top and impact frames")
+    timestamps_valid = bool(np.isfinite(seq.times).all() and (np.diff(seq.times) > 0).all())
     backswing = slice(address, top + 1)
+    active = np.arange(address, impact + 1)
+    reference_ranges = metrics_config.ranges_for_club(club)
+    results: list[MetricResult] = []
 
-    spine_tilt = _spine_tilt_series(seq)
-    sway_top, sway_impact = _hip_sway_pct(seq, phases)
+    def marker(name: str) -> np.ndarray:
+        if seq.has_marker(name):
+            return seq.marker(name)
+        return np.full((seq.n_frames, 3), np.nan)
 
-    up_axis, up_sign = vertical_axis(seq)
-    horizontal_axes = [i for i in range(3) if i != up_axis]
-
-    values: dict[str, tuple[float, str]] = {
-        "shoulder_turn_deg": (float(np.nanmax(np.abs(shoulder_turn[backswing]))), "deg"),
-        "hip_turn_deg": (float(np.nanmax(np.abs(hip_turn[backswing]))), "deg"),
-        "x_factor_deg": (
-            float(np.nanmax(np.abs(shoulder_turn[backswing] - hip_turn[backswing]))),
-            "deg",
-        ),
-        "spine_tilt_deg": (float(spine_tilt[address]), "deg"),
-        "tempo_ratio": (phases.tempo_ratio(seq.times), "ratio"),
-        "hip_sway_top_pct": (sway_top, "% stance width"),
-        "hip_sway_impact_pct": (sway_impact, "% stance width"),
-    }
-
-    # --- Rotation & sequencing -------------------------------------------
-    values["hip_rotation_impact_deg"] = (float(abs(hip_turn[impact])), "deg")
-    values["backswing_time_s"] = (float(seq.times[top] - seq.times[address]), "s")
-    values["downswing_time_s"] = (float(seq.times[impact] - seq.times[top]), "s")
-
-    # Secondary-axis (shoulder) tilt at impact: how far the shoulder line is
-    # lifted out of horizontal (trail shoulder drops below lead at impact).
-    shoulder_line = seq.marker("RShoulder") - seq.marker("LShoulder")
-    sh_up = np.abs(shoulder_line[:, up_axis])
-    sh_horiz = np.linalg.norm(shoulder_line[:, horizontal_axes], axis=1)
-    shoulder_tilt = np.degrees(np.arctan2(sh_up, sh_horiz))
-    values["shoulder_tilt_impact_deg"] = (float(shoulder_tilt[impact]), "deg")
-
-    # --- Posture & stability ---------------------------------------------
-    values["spine_angle_change_deg"] = (
-        float(abs(spine_tilt[impact] - spine_tilt[address])),
-        "deg",
+    pelvis_height = np.linalg.norm(
+        marker("Hip") - (marker("LAnkle") + marker("RAnkle")) / 2, axis=1
+    )
+    finite_height = pelvis_height[np.isfinite(pelvis_height)]
+    scale_valid = not finite_height.size or (
+        metrics_config.min_pelvis_height_m
+        <= np.median(finite_height)
+        <= metrics_config.max_pelvis_height_m
     )
 
-    head_name = _first_marker(seq, "Head", "Nose", "Neck")
-    if head_name is not None:
-        head = seq.marker(head_name)
-        values["head_movement_cm"] = (
-            float(np.linalg.norm(head[impact] - head[address]) * 100),
-            "cm",
-        )
-
-    basis = _stance_basis(seq, phases)
-    if basis is not None:
-        h_axes, target_dir, ball_dir = basis
-        # Early extension: pelvis drift toward/away the ball line, address->impact.
-        hip_h = seq.marker("Hip")[:, h_axes]
-        hip_move = hip_h[impact] - hip_h[address]
-        values["early_extension_cm"] = (float(abs(hip_move @ ball_dir) * 100), "cm")
-        # Reverse spine: lateral spine side-bend at the top of the backswing.
-        lateral_tilt = _lateral_spine_tilt(seq, target_dir, h_axes)
-        values["reverse_spine_deg"] = (float(abs(lateral_tilt[top])), "deg")
-
-    # --- Body angles & speed proxies -------------------------------------
-    knee_angles = []
-    for hip_m, knee_m, ankle_m in (("LHip", "LKnee", "LAnkle"), ("RHip", "RKnee", "RAnkle")):
-        if seq.has_marker(knee_m) and seq.has_marker(hip_m) and seq.has_marker(ankle_m):
-            knee_angles.append(_joint_angle_series(seq, hip_m, knee_m, ankle_m)[address])
-    if knee_angles:
-        finite = [a for a in knee_angles if np.isfinite(a)]
-        values["knee_flex_deg"] = (
-            float(np.mean(finite)) if finite else float("nan"),
-            "deg",
-        )
-
-    lead = "L" if handedness == "right" else "R"
-    sh_m, el_m, wr_m = f"{lead}Shoulder", f"{lead}Elbow", f"{lead}Wrist"
-    if seq.has_marker(el_m):
-        lead_arm = _joint_angle_series(seq, sh_m, el_m, wr_m)
-        values["lead_arm_deg"] = (float(lead_arm[top]), "deg")
-
-    values["hand_speed_impact_ms"] = (_peak_wrist_speed(seq, impact), "m/s")
-
-    # Swing-plane proxy: inclination of the hand path from address to the top.
-    hands = hands_midpoint(seq)
-    path = hands[top] - hands[address]
-    path_up = path[up_axis] * up_sign
-    path_horiz = float(np.linalg.norm(path[horizontal_axes]))
-    values["swing_plane_deg"] = (float(np.degrees(np.arctan2(path_up, path_horiz))), "deg")
-
-    reference_ranges = metrics_config.ranges_for_club(club)
-    results = []
-    for name, (value, unit) in values.items():
-        ref = reference_ranges.get(name)
-        if ref is None or not np.isfinite(value):
-            in_range, lo, hi = None, None, None
-        else:
-            lo, hi = ref.min, ref.max
-            in_range = bool(lo <= value <= hi)
+    def add(
+        name: str,
+        value: float,
+        unit: str,
+        markers: tuple[str, ...] = (),
+        frames: np.ndarray | None = None,
+        directions: tuple[str, ...] = (),
+        supported: np.ndarray | None = None,
+    ) -> None:
+        status = "valid"
+        reasons: list[str] = []
+        required = active if frames is None else frames
+        coverage = np.ones(len(required), dtype=bool)
+        for marker_name in markers:
+            coverage &= np.isfinite(marker(marker_name)[required]).all(axis=1)
+            evidence = None if marker_support is None else marker_support.get(marker_name)
+            if evidence is None:
+                reasons.append(
+                    f"unverified_marker: {marker_name} has no independent observation support"
+                )
+            elif np.asarray(evidence).shape != (seq.n_frames,):
+                coverage[:] = False
+                reasons.append(f"invalid_support: {marker_name}")
+            else:
+                coverage &= np.asarray(evidence, dtype=bool)[required]
+        if supported is not None:
+            coverage &= supported[required]
+        if not coverage.size or coverage.mean() < metrics_config.min_supported_fraction:
+            value = float("nan")
+            reasons.append("insufficient_coverage: required observations are missing or invalid")
+        for direction in directions:
+            if getattr(reference, direction) is None:
+                value = float("nan")
+                reasons.append(f"missing_reference: {direction} direction is unavailable")
+        if directions and reference.status != "valid":
+            reasons.extend(
+                reference.reasons or ["estimated_reference: physical ground is unverified"]
+            )
+            if reference.status == "unavailable":
+                value = float("nan")
+        if getattr(phases, "status", "valid") != "valid":
+            reasons.append("estimated_phases: phase anchors are not independently verified")
+        if not timestamps_valid:
+            value = float("nan")
+            reasons.append("invalid_timestamps: finite increasing times are required")
+        if not scale_valid:
+            value = float("nan")
+            reasons.append("invalid_scale: reconstructed pelvis height is implausible")
+        if not np.isfinite(value):
+            status = "unavailable"
+            reasons.append("unsupported_geometry: required geometry is missing or degenerate")
+        elif reasons:
+            status = "estimated"
+        ref = reference_ranges.get(name) if metrics_config.range_definition_version == 2 else None
+        if name in reference_ranges and ref is None:
+            reasons.append("incompatible_target: target definition version requires review")
+        lo, hi = (None, None) if ref is None else (ref.min, ref.max)
+        in_range = bool(lo <= value <= hi) if ref is not None and status == "valid" else None
         results.append(
             MetricResult(
-                name=name, value=value, unit=unit, in_range=in_range, range_min=lo, range_max=hi
+                name=name,
+                value=float(value),
+                unit=unit,
+                in_range=in_range,
+                range_min=lo,
+                range_max=hi,
+                status=status,
+                definition_id=f"{name}:2",
+                reasons=list(dict.fromkeys(reasons)),
             )
         )
-    return MetricsReport(phases=phases, metrics=results)
+
+    up = reference.up if reference.up is not None else np.full(3, np.nan)
+    ball = reference.ball if reference.ball is not None else np.full(3, np.nan)
+    target = reference.target if reference.target is not None else np.full(3, np.nan)
+    shoulder_turn = _supported_turn(
+        seq, "LShoulder", "RShoulder", address, metrics_config, reference, marker_support
+    )
+    hip_turn = _supported_turn(
+        seq, "LHip", "RHip", address, metrics_config, reference, marker_support
+    )
+    shoulder_markers = ("LShoulder", "RShoulder")
+    hip_markers = ("LHip", "RHip")
+    turn_frames = np.arange(address, top + 1)
+    add(
+        "shoulder_turn_deg",
+        _peak_magnitude(shoulder_turn[backswing]),
+        "deg",
+        shoulder_markers,
+        turn_frames,
+        ("up",),
+        np.isfinite(shoulder_turn),
+    )
+    add(
+        "hip_turn_deg",
+        _peak_magnitude(hip_turn[backswing]),
+        "deg",
+        hip_markers,
+        turn_frames,
+        ("up",),
+        np.isfinite(hip_turn),
+    )
+    separation = (shoulder_turn - hip_turn + 180) % 360 - 180
+    add(
+        "x_factor_deg",
+        _peak_magnitude(separation[backswing]),
+        "deg",
+        shoulder_markers + hip_markers,
+        turn_frames,
+        ("up",),
+        np.isfinite(separation),
+    )
+    spine = marker("Neck") - marker("Hip")
+    forward = np.degrees(np.arctan2(spine @ ball, spine @ up))
+    spine_valid = np.linalg.norm(spine, axis=1) > metrics_config.min_projected_width_m
+    add(
+        "spine_tilt_deg",
+        forward[address],
+        "deg",
+        ("Hip", "Neck"),
+        np.array([address]),
+        ("up", "ball"),
+        spine_valid,
+    )
+    back_time = seq.times[top] - seq.times[address]
+    down_time = seq.times[impact] - seq.times[top]
+    add(
+        "tempo_ratio",
+        back_time / down_time if down_time > 0 else float("nan"),
+        "ratio",
+        ("LWrist", "RWrist"),
+    )
+    stance = marker("LAnkle")[address] - marker("RAnkle")[address]
+    stance -= np.dot(stance, up) * up
+    width = np.linalg.norm(stance)
+    stance_direction = (
+        stance / width if width >= metrics_config.min_projected_width_m else np.full(3, np.nan)
+    )
+    hip = marker("Hip")
+    for name, frame in (("hip_sway_top_pct", top), ("hip_sway_impact_pct", impact)):
+        sway = (
+            abs((hip[frame] - hip[address]) @ stance_direction) / width * 100
+            if width > 0
+            else float("nan")
+        )
+        add(
+            name,
+            sway,
+            "% stance width",
+            ("Hip", "LAnkle", "RAnkle"),
+            np.array([address, frame]),
+            ("up",),
+        )
+    opening_sign = np.sign(np.dot(np.cross(ball, target), up))
+    add(
+        "hip_rotation_impact_deg",
+        hip_turn[impact] * opening_sign,
+        "deg",
+        hip_markers,
+        np.array([address, impact]),
+        ("up", "target", "ball"),
+        np.isfinite(hip_turn),
+    )
+    add("backswing_time_s", back_time, "s", ("LWrist", "RWrist"), np.arange(address, top + 1))
+    add("downswing_time_s", down_time, "s", ("LWrist", "RWrist"), np.arange(top, impact + 1))
+    shoulder_line = marker("LShoulder") - marker("RShoulder")
+    shoulder_line *= 1 if handedness == "right" else -1
+    vertical = shoulder_line @ up
+    horizontal = shoulder_line - vertical[:, None] * up
+    tilt = np.degrees(np.arctan2(vertical, np.linalg.norm(horizontal, axis=1)))
+    add(
+        "shoulder_tilt_impact_deg",
+        tilt[impact],
+        "deg",
+        shoulder_markers,
+        np.array([impact]),
+        ("up",),
+        np.linalg.norm(shoulder_line, axis=1) >= metrics_config.min_projected_width_m,
+    )
+    add(
+        "spine_angle_change_deg",
+        abs(forward[impact] - forward[address]),
+        "deg",
+        ("Hip", "Neck"),
+        np.array([address, impact]),
+        ("up", "ball"),
+        spine_valid,
+    )
+    head = marker("Head")
+    head_evidence = None if marker_support is None else marker_support.get("Head")
+    if head_evidence is not None and np.asarray(head_evidence).shape == (seq.n_frames,):
+        head = head.copy()
+        head[~np.asarray(head_evidence, dtype=bool)] = np.nan
+    add(
+        "head_movement_cm",
+        _peak_magnitude(np.linalg.norm(head[active] - head[address], axis=1)) * 100,
+        "cm",
+        ("Head",),
+    )
+    add(
+        "early_extension_cm",
+        (hip[impact] - hip[address]) @ ball * 100,
+        "cm",
+        ("Hip",),
+        np.array([address, impact]),
+        ("up", "ball"),
+    )
+    lateral = np.degrees(np.arctan2(spine @ target, spine @ up))
+    add(
+        "reverse_spine_deg",
+        lateral[top],
+        "deg",
+        ("Hip", "Neck"),
+        np.array([top]),
+        ("up", "target"),
+        spine_valid,
+    )
+    knee_markers = ("LHip", "LKnee", "LAnkle", "RHip", "RKnee", "RAnkle")
+    knees = [
+        (
+            _joint_angle_series(seq, *chain)[address]
+            if all(seq.has_marker(name) for name in chain)
+            else float("nan")
+        )
+        for chain in (knee_markers[:3], knee_markers[3:])
+    ]
+    add("knee_flex_deg", float(np.mean(knees)), "deg", knee_markers, np.array([address]))
+    lead = "L" if handedness == "right" else "R"
+    arm_markers = (f"{lead}Shoulder", f"{lead}Elbow", f"{lead}Wrist")
+    arm = (
+        _joint_angle_series(seq, *arm_markers)[top]
+        if all(seq.has_marker(name) for name in arm_markers)
+        else float("nan")
+    )
+    add("lead_arm_deg", arm, "deg", arm_markers, np.array([top]))
+    speed_frames = np.flatnonzero(
+        np.abs(seq.times - seq.times[impact]) <= metrics_config.hand_speed_window_s
+    )
+    speed_peaks = []
+    for wrist in ("LWrist", "RWrist"):
+        trajectory = marker(wrist)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            speed = np.linalg.norm(np.diff(trajectory, axis=0), axis=1) / np.diff(seq.times)
+            fraction = (seq.times[1:-1] - seq.times[:-2]) / (seq.times[2:] - seq.times[:-2])
+        interpolated = trajectory[:-2] + fraction[:, None] * (trajectory[2:] - trajectory[:-2])
+        outliers = (
+            np.linalg.norm(trajectory[1:-1] - interpolated, axis=1)
+            > metrics_config.marker_outlier_distance_m
+        )
+        outlier_frames = np.flatnonzero(outliers) + 1
+        speed[outlier_frames - 1] = np.nan
+        speed[outlier_frames] = np.nan
+        speed[(speed > metrics_config.max_marker_speed_ms) | (speed < 0)] = np.nan
+        evidence = None if marker_support is None else marker_support.get(wrist)
+        if evidence is not None and np.asarray(evidence).shape == (seq.n_frames,):
+            observation_mask = np.asarray(evidence, dtype=bool)
+            speed[~(observation_mask[:-1] & observation_mask[1:])] = np.nan
+        half = max(1, round(metrics_config.turn_filter_window_s * seq.fps / 2))
+        for index in range(half, len(speed) - half):
+            segment = speed[index - half : index + half + 1]
+            finite = segment[np.isfinite(segment)]
+            if (
+                finite.size
+                and speed[index] > np.median(finite) * metrics_config.max_limb_length_ratio
+            ):
+                speed[index] = np.nan
+        interval_times = (seq.times[:-1] + seq.times[1:]) / 2
+        indices = np.flatnonzero(
+            np.abs(interval_times - seq.times[impact]) <= metrics_config.hand_speed_window_s
+        )
+        fraction = np.isfinite(speed[indices]).mean() if indices.size else 0
+        speed_peaks.append(
+            _peak_magnitude(speed[indices])
+            if fraction >= metrics_config.min_supported_fraction
+            else float("nan")
+        )
+    speed = _peak_magnitude(np.asarray(speed_peaks))
+    add("hand_speed_impact_ms", speed, "m/s", ("LWrist", "RWrist"), speed_frames)
+    hands = (marker("LWrist") + marker("RWrist")) / 2
+    path = hands[top] - hands[address]
+    height = np.dot(path, up)
+    path_horizontal = np.linalg.norm(path - height * up)
+    plane = (
+        np.degrees(np.arctan2(height, path_horizontal))
+        if np.linalg.norm(path) >= metrics_config.min_projected_width_m
+        else float("nan")
+    )
+    add("swing_plane_deg", plane, "deg", ("LWrist", "RWrist"), np.array([address, top]), ("up",))
+    return MetricsReport(phases=phases, metrics=results, reference_frame=reference.to_dict())

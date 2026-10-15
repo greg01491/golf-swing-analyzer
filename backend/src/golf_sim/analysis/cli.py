@@ -9,6 +9,7 @@ the unfiltered one) and writes metrics.json into the session folder.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 
@@ -20,6 +21,7 @@ from golf_sim.analysis.ball_detect import (
     find_ball_address_frame,
     find_ball_at_address,
 )
+from golf_sim.analysis.frame_of_reference import AnalysisReference, infer_reference
 from golf_sim.analysis.ideal_pose import build_all_ideal_frames
 from golf_sim.analysis.metrics import compute_metrics
 from golf_sim.analysis.p_positions import detect_p_positions
@@ -27,15 +29,23 @@ from golf_sim.analysis.phases import PhaseDetectionError, SwingPhases, detect_ph
 from golf_sim.analysis.quality import assess_tracking_quality
 from golf_sim.analysis.tips import generate_tips, tips_to_dicts
 from golf_sim.config import Club, load_config, resolve_state_path
+from golf_sim.pose.reconstruction_evidence import verified_artifact_evidence
 from golf_sim.trc import read_trc
 
 
 def _p_positions_payload(seq, report, config, club: Club | None = None) -> list[dict]:
     handedness = config.analysis.golfer_handedness
-    positions = detect_p_positions(seq, report.phases, handedness=handedness)
+    reference = AnalysisReference(**report.reference_frame)
+    positions = detect_p_positions(seq, report.phases, handedness=handedness, reference=reference)
     frame_by_name = {p.name: p.frame_index for p in positions}
     ideal_frames = build_all_ideal_frames(
-        seq, report.phases, frame_by_name, config.metrics, handedness=handedness, club=club
+        seq,
+        report.phases,
+        frame_by_name,
+        config.metrics,
+        handedness=handedness,
+        club=club,
+        reference=reference,
     )
     return [
         {
@@ -50,6 +60,7 @@ def _p_positions_payload(seq, report, config, club: Club | None = None) -> list[
             "ideal_frame": {
                 marker: [round(float(c), 4) for c in xyz]
                 for marker, xyz in ideal_frames[p.name].items()
+                if np.isfinite(xyz).all()
             },
         }
         for p in positions
@@ -57,12 +68,31 @@ def _p_positions_payload(seq, report, config, club: Club | None = None) -> list[
 
 
 def _camera_json_dir(session_dir: Path, camera_role: str) -> Path:
-    return session_dir / "pose2sim" / "pose" / f"{camera_role}_json"
+    project = session_dir / "pose2sim"
+    associated = project / "pose-associated" / f"{camera_role}_json"
+    return associated if associated.is_dir() else project / "pose" / f"{camera_role}_json"
 
 
 # HALPE_26 keypoint indices (Pose2Sim's default pose model).
 _LWRIST, _RWRIST = 9, 10
 _LANKLE, _RANKLE = 15, 16
+_MARKER_INDICES = {
+    "LShoulder": 5,
+    "RShoulder": 6,
+    "LElbow": 7,
+    "RElbow": 8,
+    "LWrist": 9,
+    "RWrist": 10,
+    "LHip": 11,
+    "RHip": 12,
+    "LKnee": 13,
+    "RKnee": 14,
+    "LAnkle": 15,
+    "RAnkle": 16,
+    "Head": 17,
+    "Neck": 18,
+    "Hip": 19,
+}
 
 
 def _load_keypoints(session_dir: Path, camera_role: str, frame_index: int) -> np.ndarray | None:
@@ -76,10 +106,84 @@ def _load_keypoints(session_dir: Path, camera_role: str, frame_index: int) -> np
     people = raw.get("people") or []
     if not people:
         return None
-    keypoints = np.asarray(people[0].get("pose_keypoints_2d", []), dtype=float).reshape(-1, 3)
+    try:
+        keypoints = np.asarray(people[0].get("pose_keypoints_2d", []), dtype=float).reshape(-1, 3)
+    except (ValueError, TypeError):
+        return None
     if keypoints.shape[0] < 26:
         return None
     return keypoints
+
+
+def _reference_for_session(
+    seq, metadata: dict, trc_path: Path, handedness: str
+) -> AnalysisReference:
+    try:
+        artifact = verified_artifact_evidence(trc_path)
+    except (OSError, ValueError, KeyError):
+        artifact = None
+    evidence = None if artifact is None else artifact.get("analysis_reference")
+    if isinstance(evidence, dict):
+        fingerprint = hashlib.sha256(trc_path.read_bytes()).hexdigest()
+        if (
+            evidence.get("source") == "calibrated_ground"
+            and evidence.get("validated") is True
+            and evidence.get("source_trc_sha256") == fingerprint
+        ):
+            try:
+                return AnalysisReference(
+                    up=evidence.get("up"),
+                    target=evidence.get("target"),
+                    ball=evidence.get("ball"),
+                    source=f"calibrated_ground:{fingerprint}",
+                )
+            except (ValueError, TypeError):
+                pass
+    reference = infer_reference(seq, handedness)
+    if evidence is not None:
+        reference.reasons.append(
+            "unmatched_reference: ground evidence did not validate against this TRC"
+        )
+    return reference
+
+
+def _marker_observation_support(seq, session_dir: Path, camera_roles: list[str], config):
+    if len(camera_roles) < 2:
+        return None
+    observations = {}
+    for role in camera_roles:
+        frames = np.full((seq.n_frames, 26, 3), np.nan)
+        for frame in range(seq.n_frames):
+            keypoints = _load_keypoints(session_dir, role, frame)
+            if keypoints is not None:
+                frames[frame] = keypoints[:26]
+        observations[role] = frames
+    support = {}
+    half = max(1, round(config.turn_filter_window_s * seq.fps / 2))
+    for name, index in _MARKER_INDICES.items():
+        if not seq.has_marker(name):
+            continue
+        accepted = np.ones(seq.n_frames, dtype=bool)
+        trajectory = seq.marker(name)
+        for frames in observations.values():
+            points = frames[:, index]
+            camera_valid = np.isfinite(points).all(axis=1) & (points[:, 2] >= 0.3)
+            for frame in range(seq.n_frames):
+                start, end = max(0, frame - half), min(seq.n_frames, frame + half + 1)
+                spatial = trajectory[start:end]
+                if not np.isfinite(spatial).all():
+                    continue
+                held = np.linalg.norm(np.ptp(spatial, axis=0)) <= config.frozen_tolerance_m
+                image = points[start:end, :2][camera_valid[start:end]]
+                if (
+                    held
+                    and image.size
+                    and np.linalg.norm(np.ptp(image, axis=0)) > config.held_observation_motion_px
+                ):
+                    camera_valid[frame] = False
+            accepted &= camera_valid
+        support[name] = accepted
+    return support
 
 
 def _wrist_visibility_by_camera(
@@ -206,6 +310,7 @@ def analyze_session(session_dir: Path, config) -> Path:
         "impact_source": "estimated",
     }
     club: Club | None = None
+    metadata: dict = {}
     meta_path = session_dir / "metadata.json"
     if meta_path.exists():
         try:
@@ -213,7 +318,13 @@ def analyze_session(session_dir: Path, config) -> Path:
             delay = metadata.get("pre_capture_delay_s")
             club = metadata.get("club")
             if delay is not None:
-                phases = detect_phases(seq, impact_hint_frame=round(float(delay) * seq.fps))
+                phases = detect_phases(
+                    seq,
+                    impact_hint_frame=round(float(delay) * seq.fps),
+                    reference=_reference_for_session(
+                        seq, metadata, trc_path, config.analysis.golfer_handedness
+                    ),
+                )
         except (json.JSONDecodeError, OSError, ValueError):
             phases = None
 
@@ -275,7 +386,13 @@ def analyze_session(session_dir: Path, config) -> Path:
                 )
                 if impact_frame is not None:
                     try:
-                        refined = detect_phases(seq, impact_hint_frame=impact_frame)
+                        refined = detect_phases(
+                            seq,
+                            impact_hint_frame=impact_frame,
+                            reference=_reference_for_session(
+                                seq, metadata, trc_path, config.analysis.golfer_handedness
+                            ),
+                        )
                     except PhaseDetectionError:
                         refined = phases
                     phases = SwingPhases(
@@ -303,18 +420,37 @@ def analyze_session(session_dir: Path, config) -> Path:
                         }
                     )
 
+    camera_devices = getattr(getattr(config, "cameras", None), "devices", [])
+    camera_roles = [device.role for device in camera_devices]
+    reference = _reference_for_session(seq, metadata, trc_path, config.analysis.golfer_handedness)
+    marker_support = _marker_observation_support(seq, session_dir, camera_roles, config.metrics)
+    try:
+        artifact = verified_artifact_evidence(trc_path)
+    except (OSError, ValueError, KeyError):
+        artifact = None
+    if artifact is not None:
+        reconstructed = {
+            name: np.asarray(values, dtype=bool)
+            for name, values in artifact.get("marker_support", {}).items()
+        }
+        if marker_support is None:
+            marker_support = reconstructed
+        else:
+            for name, values in reconstructed.items():
+                if name in marker_support and values.shape == marker_support[name].shape:
+                    marker_support[name] &= values
     report = compute_metrics(
         seq,
         config.metrics,
         phases=phases,
         handedness=config.analysis.golfer_handedness,
         club=club,
+        reference=reference,
+        marker_support=marker_support,
     )
     tips = generate_tips(report)
 
     out_path = session_dir / "metrics.json"
-    camera_devices = getattr(getattr(config, "cameras", None), "devices", [])
-    camera_roles = [device.role for device in camera_devices]
     camera_wrist_visibility = _wrist_visibility_by_camera(
         session_dir,
         camera_roles,
@@ -333,10 +469,18 @@ def analyze_session(session_dir: Path, config) -> Path:
         swing_window=(report.phases.address_frame, report.phases.impact_frame),
         camera_wrist_visibility=camera_wrist_visibility,
         camera_wrist_triangulation_coverage=camera_wrist_triangulation_coverage,
+        metric_confidence={metric.name: metric.status for metric in report.metrics},
+        metric_reasons={metric.name: metric.reasons for metric in report.metrics if metric.reasons},
     )
 
+    if artifact is not None and artifact.get("session_validation", {}).get("status") == "failed":
+        tracking_quality.reliable = False
+        tracking_quality.warnings.extend(artifact["session_validation"]["reasons"])
     payload = {
         "source_trc": trc_path.name,
+        "reconstruction_validation": (
+            None if artifact is None else artifact.get("session_validation")
+        ),
         "club": club,
         "club_profile": config.metrics.club_profile_mapping.get(club) if club else None,
         # quality first so the UI can caveat everything below it when the
@@ -347,7 +491,7 @@ def analyze_session(session_dir: Path, config) -> Path:
         "ball": ball_info,
         "p_positions": _p_positions_payload(seq, report, config, club=club),
     }
-    out_path.write_text(json.dumps(payload, indent=2))
+    out_path.write_text(json.dumps(payload, indent=2, allow_nan=False))
     return out_path
 
 
@@ -380,7 +524,8 @@ def main() -> None:
             if metric["in_range"] is None
             else ("  OK" if metric["in_range"] else "  ** OUT OF RANGE **")
         )
-        print(f"  {metric['name']}: {metric['value']} {metric['unit']}{flag}")
+        value = "unavailable" if metric["value"] is None else f"{metric['value']} {metric['unit']}"
+        print(f"  {metric['name']}: {value} [{metric.get('status', 'legacy-unverified')}]{flag}")
 
     print("\nP-positions:")
     for pos in report["p_positions"]:
@@ -391,8 +536,9 @@ def main() -> None:
         for i, tip in enumerate(report["tips"], 1):
             print(f"  {i}. [{tip['metric']} {tip['direction']}] {tip['text']}")
     else:
-        all_in_range = bool(report["metrics"]) and all(
+        all_in_range = len(report["metrics"]) == 19 and all(
             metric["value"] is not None
+            and metric.get("status") == "valid"
             and metric["range"] is not None
             and metric["in_range"] is True
             for metric in report["metrics"]
@@ -400,7 +546,12 @@ def main() -> None:
         message = (
             "everything measured is in range. Nice swing."
             if all_in_range
-            else "no actionable tips for this swing."
+            else (
+                "assessment incomplete: some measurements could not be verified."
+                if len(report["metrics"]) != 19
+                or any(metric.get("status") != "valid" for metric in report["metrics"])
+                else "no actionable tips for this swing."
+            )
         )
         print(f"\n{message}")
 

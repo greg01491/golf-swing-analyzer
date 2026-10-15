@@ -79,14 +79,17 @@
 - [ ] Clear the stale pre-rotation-fix captures via the new "clear all captures and start over" button, then redo camera_2's intrinsics captures and the extrinsics (practice-swing) capture, recompute via the wizard, and confirm `mean_reprojection_error_px` is reasonable (well under ~5px) — **needs your rig**; the existing `Calib_rig.toml` (~79,000px reprojection error) is unusable and was computed before the rotation fix
 
 ## Phase 5 — Swing Metrics Engine
-- [x] Finalize the 19-metric list: shoulder_turn_deg, hip_turn_deg, x_factor_deg, spine_tilt_deg, tempo_ratio, hip_sway_top_pct, hip_sway_impact_pct, hip_rotation_impact_deg, backswing_time_s, downswing_time_s, shoulder_tilt_impact_deg, spine_angle_change_deg, head_movement_cm, early_extension_cm, reverse_spine_deg, knee_flex_deg, lead_arm_deg, hand_speed_impact_ms, and swing_plane_deg. All angles are magnitudes; swing_plane_deg is a body-pose hand-path proxy, not club tracking
-- [x] Implement each metric's computation from the 3D landmark sequence — `analysis/metrics.py`, built on a body-anchored reference frame (`analysis/frame_of_reference.py`) that infers the vertical axis from ankle→head separation, so nothing assumes which calibrated world axis is up or where the target line is
+- [ ] Finish independent rig acceptance for `repair-rig-calibration-and-ground-reference`: verify held-out geometry, measured lengths, optical sync, level/target evidence and defensible shoulder/hip angle error bounds before closing physical accuracy. The measured-board wizard and provenance safeguards do not substitute for this capture.
+- [x] Finalize the 19-metric list: shoulder_turn_deg, hip_turn_deg, x_factor_deg, spine_tilt_deg, tempo_ratio, hip_sway_top_pct, hip_sway_impact_pct, hip_rotation_impact_deg, backswing_time_s, downswing_time_s, shoulder_tilt_impact_deg, spine_angle_change_deg, head_movement_cm, early_extension_cm, reverse_spine_deg, knee_flex_deg, lead_arm_deg, hand_speed_impact_ms, and swing_plane_deg. Version 2 retains anatomical signs where relevant; swing_plane_deg is an endpoint body-pose proxy, not club tracking
+- [x] Implement versioned metrics with shared vector-reference geometry, supported circular turn aggregation, per-metric valid/estimated/unavailable evidence, null-safe output and independent missing-marker behavior. Body-derived up remains estimated; contradictory torso/leg geometry is unavailable rather than an arbitrary head-derived axis
 - [x] Swing phase detection (address/top/impact) from the hand-midpoint trajectory — `analysis/phases.py`; relative-quantity heuristics only (fractions of peak speed, per-clip extrema) so it's invariant to units/frame rate/position
-- [x] Add configurable reference ranges for all 19 shipped metrics — config.yaml `metrics.reference_ranges`, with shared timing ranges and club-profile overrides for hand speed and the hand-path plane proxy; deliberately incomplete custom configurations still report omitted metrics as unranged
+- [x] Add definition-compatible reference ranges for all 19 shipped valid metrics — config.yaml `metrics.reference_ranges`, with shared timing ranges and club-profile overrides; custom configurations without compatible targets remain unranged, and estimates/unavailable values have no verdict
 - [x] Implement "flag out-of-range" logic
 - [x] Output a structured metrics report (JSON) per session — `python -m golf_sim.analysis.cli <session>|--latest` → `<session>/metrics.json`
 - [x] Write tests against known swings — synthetic swing generator with controlled ground truth (90° shoulder turn, 45° hip turn, 3:1 tempo, known spine tilt); computed metrics match within tolerance. Chain also smoke-tested on the demo session's real 3D data: runs end-to-end, and correctly flags everything out-of-range since the demo subject isn't swinging a golf club
 - Real-swing validation of phase-detection heuristics + reference-range defaults still needs actual swing captures from your rig (same dependency as the Phase 4 hardware items)
+- [x] Add definition-compatible targets, legacy-unverified review, segregated comparable history, confidence-aware speech and explicit saved-landmark reanalysis without rewriting sessions on reads
+- [ ] Certify physical shoulder/hip accuracy against independently supported reference geometry and synchronized recordings; current October recordings demonstrate rejection of corrupt geometry, not verified corrected angles. See the active `improve-metric-accuracy-and-confidence` change validation record
 
 ### Phase 5 addition — P-System swing positions (P1-P10) + reference overlay
 Not in the original spec; added per request (2026-07-19).
@@ -102,7 +105,7 @@ Not in the original spec; added per request (2026-07-19).
 - [x] Define rule set mapping flagged metrics → candidate tip text — `analysis/tips.py`: per-metric too-low/too-high wording, including both directions for timing, hand speed, and the qualified hand-path plane proxy; low hip-sway deliberately has no tip (it isn't a fault)
 - [x] Implement tip selection/prioritization — severity = deviation normalized by reference-range width, ranked, top-3 (configurable via `max_tips` arg)
 - [x] Output ranked tips list per session — included in `metrics.json` (`tips` array) and the analysis CLI printout
-- [x] Derive visual, spoken, and CLI empty-state summaries from metric verdicts: claim everything is in range only when every measured metric is explicitly in range; otherwise report no actionable tips
+- [x] Derive visual and spoken summaries from confidence and compatible verdicts: all-in-range requires all 19 expected measurements to be valid, ranged and in range; distinguish incomplete assessment from no actionable tips
 - [ ] Review tip wording for clarity/usefulness (manual pass) — **your call, Greg**: read the tip texts in `backend/src/golf_sim/analysis/tips.py` and edit any wording that doesn't sound like advice you'd actually want
 
 ## Phase 7 — Review UI

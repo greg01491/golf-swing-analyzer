@@ -1,20 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { api } from '../api'
 import type { StatsSession } from '../api'
-import { METRIC_INFO, formatMetricName } from '../metricInfo'
-
-interface Point {
-  label: string
-  value: number
-  inRange: boolean | null
-}
-
-interface Series {
-  name: string
-  unit: string
-  range: { min: number; max: number } | null
-  points: Point[]
-}
+import { formatMetricName } from '../metricInfo'
+import { comparableMetricSeries, isValidatedMetric, type MetricSeries } from '../metricFeedback'
 
 // SVG geometry (a viewBox coordinate space; the <svg> scales to its box).
 const W = 560
@@ -26,7 +14,7 @@ const PAD_B = 30
 const GREEN = '#4ade80'
 const RED = '#f87171'
 
-function MetricChart({ series }: { series: Series }) {
+function MetricChart({ series }: { series: MetricSeries }) {
   const values = series.points.map((p) => p.value)
   const lo = Math.min(...values, series.range?.min ?? Infinity)
   const hi = Math.max(...values, series.range?.max ?? -Infinity)
@@ -56,6 +44,7 @@ function MetricChart({ series }: { series: Series }) {
           {latest.value} {series.unit}
         </span>
       </div>
+      <p className="muted">{series.context}</p>
       {series.range && (
         <p className="muted stat-target">
           target {series.range.min}–{series.range.max} {series.unit}
@@ -146,42 +135,7 @@ export default function StatsView() {
       .catch(() => setError(true))
   }, [])
 
-  const seriesList = useMemo<Series[]>(() => {
-    if (!stats) return []
-    // stable metric order: known metrics first (METRIC_INFO order), then any
-    // extras in first-seen order
-    const order = Object.keys(METRIC_INFO)
-    const seen = new Set<string>()
-    for (const s of stats) for (const m of s.metrics) seen.add(m.name)
-    const names = [
-      ...order.filter((n) => seen.has(n)),
-      ...[...seen].filter((n) => !order.includes(n)),
-    ]
-    return names
-      .map((name) => {
-        const points: Point[] = []
-        let unit = ''
-        let range: { min: number; max: number } | null = null
-        for (const s of stats) {
-          const m = s.metrics.find((mm) => mm.name === name)
-          if (!m || m.value === null) continue
-          unit = m.unit
-          if (m.range) range = m.range
-          const dt = s.created_at ? new Date(s.created_at) : null
-          points.push({
-            label: dt
-              ? dt.toLocaleDateString([], { day: 'numeric', month: 'short' }) +
-                ' ' +
-                dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-              : s.id,
-            value: m.value,
-            inRange: m.in_range,
-          })
-        }
-        return { name, unit, range, points }
-      })
-      .filter((s) => s.points.length > 0)
-  }, [stats])
+  const seriesList = useMemo(() => comparableMetricSeries(stats ?? []), [stats])
 
   if (error) {
     return (
@@ -193,25 +147,34 @@ export default function StatsView() {
   if (!stats) return <div className="stats-view">loading…</div>
 
   const swingCount = stats.length
+  const excludedCount = stats.reduce(
+    (count, session) =>
+      count + session.metrics.filter((metric) => !isValidatedMetric(metric)).length,
+    0,
+  )
 
   return (
     <div className="stats-view">
       <h2>stats over time</h2>
       {seriesList.length === 0 ? (
-        <p className="muted">no processed swings yet — capture and process a swing first.</p>
+        <p className="muted">No verified, comparable measurements available.</p>
       ) : (
         <>
           <p className="muted">
-            {swingCount} processed swing{swingCount === 1 ? '' : 's'}. Each dot is one swing (oldest
-            on the left); green means in range, red means out of range. The shaded band is the target
-            range.
+            {swingCount} processed swing{swingCount === 1 ? '' : 's'}.
           </p>
           <div className="stats-grid">
             {seriesList.map((s) => (
-              <MetricChart key={s.name} series={s} />
+              <MetricChart key={s.key} series={s} />
             ))}
           </div>
         </>
+      )}
+      {excludedCount > 0 && (
+        <p className="muted">
+          {excludedCount} unverified measurements excluded. Legacy results remain available in swing
+          review.
+        </p>
       )}
     </div>
   )

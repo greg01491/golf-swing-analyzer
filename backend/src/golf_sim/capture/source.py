@@ -104,6 +104,7 @@ class OpenCVCameraSource:
         self.fps = fps
         self.rotation_deg = rotation_deg
         self.controls = controls
+        self.control_readbacks: dict = {}
         self._cap: cv2.VideoCapture | None = None
 
     def open(self) -> None:
@@ -113,7 +114,7 @@ class OpenCVCameraSource:
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
         cap.set(cv2.CAP_PROP_FPS, self.fps)
         if self.controls is not None:
-            apply_camera_controls(cap, self.controls)
+            self.control_readbacks = apply_camera_controls(cap, self.controls)
         if not cap.isOpened():
             raise RuntimeError(f"could not open camera {self.name or index!r}")
         self._cap = cap
