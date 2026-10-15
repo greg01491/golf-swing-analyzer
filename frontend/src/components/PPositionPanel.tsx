@@ -32,8 +32,8 @@ export default function PPositionPanel({
       </p>
       {!reliable && (
         <p className="muted" role="status">
-          Checkpoint seeking is disabled because low tracking quality can put these positions on
-          the wrong frames. Video playback is still available for manual review.
+          Low tracking quality can make detected checkpoint frames imprecise. Available
+          checkpoints remain selectable for review.
         </p>
       )}
       {unavailableCount > 0 && (
@@ -53,7 +53,7 @@ export default function PPositionPanel({
           <button
             key={p.name}
             className={p.name === selected ? 'active' : ''}
-            disabled={!reliable || p.available === false}
+            disabled={p.available === false}
             title={p.unavailable_reason ?? p.estimate_reason ?? undefined}
             onClick={() => onSelect(p)}
           >
