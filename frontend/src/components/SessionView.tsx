@@ -9,7 +9,7 @@ import {
   metricSummary,
 } from '../metricFeedback'
 import { METRIC_INFO, VIEW_LABELS, formatMetricName, type MetricView } from '../metricInfo'
-import { clampPlaybackPercent, playbackRateForPercent } from '../playback'
+import { clampPlaybackPercent, playbackRateForPercent, stepFrameTime } from '../playback'
 import PPositionPanel from './PPositionPanel'
 import Skeleton3D from './Skeleton3D'
 import SwingPlaneLine from './SwingPlaneLine'
@@ -25,6 +25,28 @@ const cameraLabel = (camera: string) => {
   if (camera === 'camera_1') return 'Down-the-line view'
   if (camera === 'camera_2') return 'Face-on view'
   return camera.replaceAll('_', ' ')
+}
+
+function FrameStepControls({
+  frame,
+  time,
+  onStep,
+}: {
+  frame: number
+  time: number
+  onStep: (direction: -1 | 1) => void
+}) {
+  return (
+    <div className="frame-step-controls" role="group" aria-label="Frame stepping">
+      <button type="button" title="Previous frame" aria-label="Previous frame" onClick={() => onStep(-1)}>
+        |&lt;
+      </button>
+      <span>frame {frame} @ {time.toFixed(3)}s</span>
+      <button type="button" title="Next frame" aria-label="Next frame" onClick={() => onStep(1)}>
+        &gt;|
+      </button>
+    </div>
+  )
 }
 
 const applyPlaybackRate = (video: HTMLVideoElement, percent: number) => {
@@ -163,6 +185,14 @@ export default function SessionView({ sessionId, onChanged, focusedMetric, onFoc
     [sessionId, cameraKey, overlayKey, showOverlay],
   )
   const videoSrc = videoSources[camera]
+  const playbackFrameRate = () => {
+    const cameraMetadata = detail?.metadata.cameras as
+      | Record<string, { fps?: number }>
+      | undefined
+    const primaryCamera = proMode ? detail?.cameras[0] : camera
+    const fps = landmarks?.fps ?? cameraMetadata?.[primaryCamera ?? '']?.fps
+    return fps && Number.isFinite(fps) && fps > 0 ? fps : 30
+  }
 
   const syncProVideos = (action: 'play' | 'pause' | 'seek' | 'rate') => {
     const primary = videoRefs.current[detail?.cameras[0] ?? '']
@@ -176,6 +206,28 @@ export default function SessionView({ sessionId, onChanged, focusedMetric, onFoc
       if (action === 'play') void video.play().catch(() => undefined)
       if (action === 'pause') video.pause()
     }
+  }
+
+  const stepFrame = (direction: -1 | 1) => {
+    const cameraNames = proMode ? detail?.cameras ?? [] : [camera]
+    const videos = cameraNames
+      .map((name) => videoRefs.current[name])
+      .filter((video): video is HTMLVideoElement => video !== null && video !== undefined)
+    if (videos.length === 0) return
+
+    const primaryCamera = proMode ? detail?.cameras[0] : camera
+    const primary = primaryCamera ? videoRefs.current[primaryCamera] ?? videos[0] : videos[0]
+    const fps = playbackFrameRate()
+    const finiteDurations = videos.map((video) => video.duration).filter(Number.isFinite)
+    const duration = finiteDurations.length > 0 ? Math.min(...finiteDurations) : undefined
+    const targetTime = stepFrameTime(primary.currentTime, fps, direction, duration)
+
+    for (const video of videos) {
+      video.pause()
+      video.currentTime = targetTime
+    }
+    setSelectedPosition(null)
+    setTime(targetTime)
   }
 
   const saveMeta = async () => {
@@ -360,6 +412,11 @@ export default function SessionView({ sessionId, onChanged, focusedMetric, onFoc
             ))}
           </div>
           <div className="video-controls">
+            <FrameStepControls
+              frame={Math.round(time * playbackFrameRate())}
+              time={time}
+              onStep={stepFrame}
+            />
             {(detail.overlay_cameras?.length ?? 0) > 0 && (
               <label className="overlay-toggle">
                 <input
@@ -426,6 +483,11 @@ export default function SessionView({ sessionId, onChanged, focusedMetric, onFoc
               <SwingPlaneLine camera={camera} />
             </div>
             <div className="video-controls">
+              <FrameStepControls
+                frame={Math.round(time * playbackFrameRate())}
+                time={time}
+                onStep={stepFrame}
+              />
               {overlayAvailable && (
                 <label className="overlay-toggle">
                   <input

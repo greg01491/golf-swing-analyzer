@@ -376,6 +376,27 @@ main {
   margin: 0;
 }
 
+.frame-step-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.frame-step-controls button {
+  min-width: 36px;
+  height: 32px;
+  font-variant-numeric: tabular-nums;
+}
+
+.frame-step-controls span {
+  min-width: 142px;
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  white-space: nowrap;
+}
+
 .video-controls .speed-control {
   display: flex;
   align-items: center;
