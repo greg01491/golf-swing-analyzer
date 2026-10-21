@@ -22,14 +22,15 @@ Status recorded 2026-10-21 for the installed rig. This tracks observed evidence 
 - [x] Shared flash/clap sync check on session `2026-10-21_10-44-07_e9a8f665`: both clips detect the event at frame 301, giving zero frame-level offset (one frame is 8.33 ms at 120 fps).
 - [x] Per-joint held-out residuals reproduced for position shot `2026-10-20_14-47-24_69632f28`. Camera 2 RHip is the main outlier: 2.2% within 15 px, median 19.36 px, p95 22.48 px. Camera 2 LHip is 87.8% within 15 px (p95 16.00 px), and Hip center is 97.8% within 15 px (p95 12.92 px).
 - [x] The worst camera-2 pelvis residuals cluster near the end of the position clip (held-out frames 333-359). Sampled frames 349 and 359 show the golfer remains in view; there is no obvious full-body crop.
+- [x] Camera-2 RHip detections at frames 333, 349, and 359 have confidence 0.83-0.93 and appear on the waistband in the source frames; no obvious left/right swap or single-view mislocalization is visible.
 - [x] The active calibration remains legacy-unverified and has no accepted ground reference. The failed candidate is not active.
 
 ## Still To Investigate
 
 - [ ] If the reprojection issue remains after per-joint analysis, measure sub-frame camera exposure latency with an external timing method. The saved-video flash check only resolves alignment to the same 8.33 ms output frame.
 - [x] Reproduce per-held-out-frame/per-joint reprojection residuals; the failed-candidate report itself only contains aggregate region statistics.
-- [ ] Determine whether the late camera-2 RHip residuals are a 2D left/right labeling or localization error, or evidence of an extrinsic camera-geometry error. Compare observed and projected right-hip points on the worst frames before changing the rig or capture.
-- [ ] After installing v0.1.18, use the frame-step controls on sync-test session `2026-10-21_10-44-07_e9a8f665`; compare both camera views at the same displayed frame and timestamp before concluding that the capture itself is out of sync.
+- [ ] Compare observed and candidate-projected camera-2 RHip coordinates on the worst frames to determine whether the remaining error is in 2D pose localization or the extrinsic camera geometry. A read-only reproduction using the workspace OpenCV 5 interpreter has not completed successfully yet.
+- [ ] After installing v0.1.19, use frame stepping on sync-test session `2026-10-21_10-44-07_e9a8f665`; compare each camera's presented-frame/time readout. Matching readouts with different-looking poses indicate viewpoint differences; mismatched readouts identify playback drift.
 - [ ] Confirm both cameras stayed rigid and camera 2 is positioned perpendicular to camera 1, with the same focus/zoom and orientation used for the lens shots.
 - [ ] Record the held-out lens RMS and p95 values for each camera on the next report; do not repeat lens captures unless their own validation fails or camera optics/settings changed.
 - [ ] Only after residual analysis identifies a likely cause, decide whether a position retake or a physical camera adjustment is justified. Do not request another blind position shot. The wizard uses the latest position shot; do not clear all shots.

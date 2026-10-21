@@ -63,6 +63,7 @@ export default function SessionView({ sessionId, onChanged, focusedMetric, onFoc
   const [landmarks, setLandmarks] = useState<Landmarks | null>(null)
   const [camera, setCamera] = useState<string>('camera_1')
   const [time, setTime] = useState(0)
+  const [cameraTimes, setCameraTimes] = useState<Record<string, number>>({})
   const [videoSize, setVideoSize] = useState<{ width: number; height: number } | null>(null)
   const [processState, setProcessState] = useState<string>('idle')
   const [selectedPosition, setSelectedPosition] = useState<PPosition | null>(null)
@@ -94,6 +95,7 @@ export default function SessionView({ sessionId, onChanged, focusedMetric, onFoc
     setProcessState('idle')
     setSelectedPosition(null)
     setVideoSize(null)
+    setCameraTimes({})
     api.session(sessionId).then((d) => {
       setDetail(d)
       setLabelDraft((d.metadata?.label as string) ?? '')
@@ -124,6 +126,8 @@ export default function SessionView({ sessionId, onChanged, focusedMetric, onFoc
     }
   }
 
+  const cameraKey = detail?.cameras.join('|') ?? ''
+
   // drive skeleton time from the video element
   useEffect(() => {
     let raf = 0
@@ -135,6 +139,34 @@ export default function SessionView({ sessionId, onChanged, focusedMetric, onFoc
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
   }, [camera])
+
+  useEffect(() => {
+    let cancelled = false
+    const callbacks = new Map<HTMLVideoElement, number>()
+    const cameras = proMode ? cameraKey.split('|').filter(Boolean) : [camera]
+
+    const watchPresentedFrames = (cameraName: string, video: HTMLVideoElement) => {
+      if (typeof video.requestVideoFrameCallback !== 'function') return
+      const callbackId = video.requestVideoFrameCallback((_now, metadata) => {
+        if (cancelled) return
+        setCameraTimes((previous) => ({ ...previous, [cameraName]: metadata.mediaTime }))
+        watchPresentedFrames(cameraName, video)
+      })
+      callbacks.set(video, callbackId)
+    }
+
+    for (const cameraName of cameras) {
+      const video = videoRefs.current[cameraName]
+      if (video) watchPresentedFrames(cameraName, video)
+    }
+
+    return () => {
+      cancelled = true
+      for (const [video, callbackId] of callbacks) {
+        video.cancelVideoFrameCallback(callbackId)
+      }
+    }
+  }, [camera, cameraKey, proMode, sessionId, showOverlay])
 
   // apply the slow-motion playback rate (100% = normal, 0% = paused) to
   // every currently mounted video -- in Pro Mode that's both camera views
@@ -162,7 +194,6 @@ export default function SessionView({ sessionId, onChanged, focusedMetric, onFoc
   }, [processState, sessionId])
 
   const overlayAvailable = (detail?.overlay_cameras ?? []).includes(camera)
-  const cameraKey = detail?.cameras.join('|') ?? ''
   const overlayKey = detail?.overlay_cameras?.join('|') ?? ''
   // memoized because videoUrl embeds a cache-buster: this component
   // re-renders every animation frame (video->skeleton time sync), and a
@@ -185,14 +216,15 @@ export default function SessionView({ sessionId, onChanged, focusedMetric, onFoc
     [sessionId, cameraKey, overlayKey, showOverlay],
   )
   const videoSrc = videoSources[camera]
-  const playbackFrameRate = () => {
+  const frameRateForCamera = (cameraName: string) => {
     const cameraMetadata = detail?.metadata.cameras as
       | Record<string, { fps?: number }>
       | undefined
-    const primaryCamera = proMode ? detail?.cameras[0] : camera
-    const fps = landmarks?.fps ?? cameraMetadata?.[primaryCamera ?? '']?.fps
+    const fps = landmarks?.fps ?? cameraMetadata?.[cameraName]?.fps
     return fps && Number.isFinite(fps) && fps > 0 ? fps : 30
   }
+  const playbackFrameRate = () =>
+    frameRateForCamera(proMode ? detail?.cameras[0] ?? camera : camera)
 
   const syncProVideos = (action: 'play' | 'pause' | 'seek' | 'rate') => {
     const primary = videoRefs.current[detail?.cameras[0] ?? '']
@@ -407,7 +439,10 @@ export default function SessionView({ sessionId, onChanged, focusedMetric, onFoc
                   />
                   <SwingPlaneLine camera={cam} />
                 </div>
-                {index > 0 && <span className="muted sync-label">synced to left view</span>}
+                <span className="muted sync-label">
+                  frame {Math.round((cameraTimes[cam] ?? videoRefs.current[cam]?.currentTime ?? 0) * frameRateForCamera(cam))}{' '}
+                  @ {(cameraTimes[cam] ?? videoRefs.current[cam]?.currentTime ?? 0).toFixed(3)}s
+                </span>
               </div>
             ))}
           </div>

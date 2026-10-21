@@ -476,6 +476,7 @@ main {
   display: block;
   margin-top: 6px;
   font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
 
 .camera-tabs {
