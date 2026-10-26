@@ -22,7 +22,7 @@ def _detect_board(gray: np.ndarray, pattern: tuple[int, int]) -> np.ndarray | No
     """
     try:
         ret, corners = cv2.findChessboardCornersSB(
-            gray, pattern, cv2.CALIB_CB_NORMALIZE_IMAGE + cv2.CALIB_CB_EXHAUSTIVE
+            gray, pattern, flags=cv2.CALIB_CB_NORMALIZE_IMAGE | cv2.CALIB_CB_EXHAUSTIVE
         )
         if ret:
             return corners
@@ -30,7 +30,7 @@ def _detect_board(gray: np.ndarray, pattern: tuple[int, int]) -> np.ndarray | No
         pass  # SB unavailable on very old OpenCV, or threw on a degenerate frame
     try:
         ret, corners = cv2.findChessboardCorners(
-            gray, pattern, cv2.CALIB_CB_ADAPTIVE_THRESH + cv2.CALIB_CB_NORMALIZE_IMAGE
+            gray, pattern, flags=cv2.CALIB_CB_ADAPTIVE_THRESH | cv2.CALIB_CB_NORMALIZE_IMAGE
         )
     except cv2.error:
         return None
