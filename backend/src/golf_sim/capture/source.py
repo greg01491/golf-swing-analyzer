@@ -45,6 +45,24 @@ _ROTATE_FLAGS = {
 }
 
 
+def configure_camera_mode(
+    cap: cv2.VideoCapture, width: int, height: int, fps: float
+) -> dict[str, float | str | bool]:
+    transport_set = bool(cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG")))
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+    cap.set(cv2.CAP_PROP_FPS, fps)
+    fourcc = int(cap.get(cv2.CAP_PROP_FOURCC))
+    return {
+        "requested_fourcc": "MJPG",
+        "transport_set_ok": transport_set,
+        "reported_fourcc": "".join(chr((fourcc >> (8 * index)) & 255) for index in range(4)),
+        "reported_width": cap.get(cv2.CAP_PROP_FRAME_WIDTH),
+        "reported_height": cap.get(cv2.CAP_PROP_FRAME_HEIGHT),
+        "reported_fps": cap.get(cv2.CAP_PROP_FPS),
+    }
+
+
 def apply_camera_controls(
     cap: cv2.VideoCapture, config: CameraDeviceConfig
 ) -> dict[str, dict[str, float | bool | None]]:
@@ -105,14 +123,13 @@ class OpenCVCameraSource:
         self.rotation_deg = rotation_deg
         self.controls = controls
         self.control_readbacks: dict = {}
+        self.capture_mode: dict = {}
         self._cap: cv2.VideoCapture | None = None
 
     def open(self) -> None:
         index = self.index if self.name is None else resolve_camera_index(self.name)
         cap = cv2.VideoCapture(index, cv2.CAP_DSHOW)
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
-        cap.set(cv2.CAP_PROP_FPS, self.fps)
+        self.capture_mode = configure_camera_mode(cap, self.width, self.height, self.fps)
         if self.controls is not None:
             self.control_readbacks = apply_camera_controls(cap, self.controls)
         if not cap.isOpened():
@@ -124,10 +141,11 @@ class OpenCVCameraSource:
         ok, image = self._cap.read()
         if not ok:
             return None
+        received_at = time.monotonic()
         flag = _ROTATE_FLAGS[self.rotation_deg]
         if flag is not None:
             image = cv2.rotate(image, flag)
-        return Frame(timestamp=time.monotonic(), image=image)
+        return Frame(timestamp=received_at, image=image)
 
     def close(self) -> None:
         if self._cap is not None:

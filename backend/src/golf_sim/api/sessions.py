@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import json
 import math
+import os
+import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -60,6 +62,31 @@ def _review_analysis(payload: dict) -> dict:
 # a separate section that gives users a green-metric benchmark to compare to.
 DEFAULT_GROUP = "My Swings"
 PRO_GROUP = "Professional Swings"
+
+_HALPE_26_KEYPOINTS = {
+    "Nose": 0,
+    "LShoulder": 5,
+    "RShoulder": 6,
+    "LElbow": 7,
+    "RElbow": 8,
+    "LWrist": 9,
+    "RWrist": 10,
+    "LHip": 11,
+    "RHip": 12,
+    "LKnee": 13,
+    "RKnee": 14,
+    "LAnkle": 15,
+    "RAnkle": 16,
+    "Head": 17,
+    "Neck": 18,
+    "Hip": 19,
+    "RBigToe": 21,
+    "LBigToe": 20,
+    "RSmallToe": 23,
+    "LSmallToe": 22,
+    "RHeel": 25,
+    "LHeel": 24,
+}
 
 
 def _sort_stamp(entry: dict) -> str:
@@ -122,6 +149,39 @@ def session_dir_for(data_dir: Path, session_id: str) -> Path:
     if not session_dir.is_dir():
         raise FileNotFoundError(f"no such session: {session_id}")
     return session_dir
+
+
+def session_review_annotations(data_dir: Path, session_id: str) -> dict:
+    """Read the separate review sidecar without touching captured evidence."""
+    session_dir = session_dir_for(data_dir, session_id)
+    path = session_dir / "review_annotations.json"
+    if not path.exists():
+        return {
+            "version": 1,
+            "marker_annotations": [],
+            "metric_annotations": [],
+        }
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def save_session_review_annotations(data_dir: Path, session_id: str, annotations: dict) -> None:
+    """Atomically replace only the review sidecar for an existing session."""
+    session_dir = session_dir_for(data_dir, session_id)
+    path = session_dir / "review_annotations.json"
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=".review-annotations-", suffix=".tmp", dir=session_dir
+    )
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as temporary:
+            json.dump(annotations, temporary, indent=2, allow_nan=False)
+            temporary.write("\n")
+        os.replace(temporary_name, path)
+    except Exception:
+        try:
+            os.unlink(temporary_name)
+        except OSError:
+            pass
+        raise
 
 
 def set_session_meta(
@@ -268,6 +328,54 @@ def session_detail(data_dir: Path, session_id: str) -> dict:
             if pose_dir.is_dir()
             else []
         ),
+    }
+
+
+def session_keypoint(
+    data_dir: Path, session_id: str, camera: str, frame_index: int, marker: str
+) -> dict | None:
+    """Return a saved per-camera 2D keypoint in that clip's pixel coordinates."""
+    if camera not in {"camera_1", "camera_2"}:
+        raise ValueError(f"invalid camera role: {camera}")
+    if marker not in _HALPE_26_KEYPOINTS:
+        raise ValueError(f"unknown HALPE-26 marker: {marker}")
+    if frame_index < 0:
+        raise ValueError("frame index must be nonnegative")
+
+    session_dir = session_dir_for(data_dir, session_id)
+    associated = session_dir / "pose2sim" / "pose-associated" / f"{camera}_json"
+    pose_dir = (
+        associated if associated.is_dir() else session_dir / "pose2sim" / "pose" / f"{camera}_json"
+    )
+    pose_path = pose_dir / f"{camera}_{frame_index:06d}.json"
+    if not pose_path.exists():
+        return None
+    try:
+        people = json.loads(pose_path.read_text()).get("people") or []
+        if len(people) != 1:
+            return None
+        values = people[0].get("pose_keypoints_2d", [])
+        index = _HALPE_26_KEYPOINTS[marker]
+        start = index * 3
+        x, y, confidence = (float(value) for value in values[start : start + 3])
+        metadata = json.loads((session_dir / "metadata.json").read_text())
+        camera_meta = metadata.get("cameras", {}).get(camera, {})
+        width, height = int(camera_meta["width"]), int(camera_meta["height"])
+    except (json.JSONDecodeError, OSError, KeyError, TypeError, ValueError):
+        return None
+    if len(values) < start + 3 or not all(math.isfinite(value) for value in (x, y, confidence)):
+        return None
+    if confidence <= 0 or not (0 <= x < width and 0 <= y < height):
+        return None
+    return {
+        "camera": camera,
+        "frame_index": frame_index,
+        "marker": marker,
+        "x": x,
+        "y": y,
+        "confidence": confidence,
+        "width": width,
+        "height": height,
     }
 
 

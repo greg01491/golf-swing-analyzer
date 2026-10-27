@@ -293,6 +293,94 @@ def write_reconstruction_evidence(
         atomic_json(metadata_path, metadata)
 
 
+def review_camera_tolerances(trc_path: Path, config: Config, issues: list[dict]) -> dict:
+    """Measure requested observations against the exact saved reconstruction calibration."""
+    artifact = verified_artifact_evidence(trc_path)
+    if artifact is None:
+        return {
+            "available": False,
+            "reason": "Bound reconstruction evidence unavailable",
+            "failures": {},
+        }
+    sequence = read_trc(trc_path)
+    project = trc_path.parent.parent
+    calibration = tomllib.loads((project / "calibration" / "Calib_rig.toml").read_text())
+    failures = {}
+    world = sequence.coords @ WORLD_TO_TRC
+    for role in ("camera_1", "camera_2"):
+        requested = {
+            (issue["marker"], frame, issue["fps"])
+            for issue in issues
+            if issue["camera"] == role and issue["marker"] in MARKER_INDICES
+            for frame in issue["frame_indices"]
+        }
+        if not requested:
+            continue
+        camera = calibration[role]
+        rotation = np.asarray(camera["rotation"], dtype=float)
+        translation = np.asarray(camera["translation"], dtype=float)
+        projected, _ = cv2.projectPoints(
+            world.reshape(-1, 3),
+            rotation,
+            translation,
+            np.asarray(camera["matrix"], dtype=float),
+            np.asarray(camera["distortions"], dtype=float),
+        )
+        projected = projected.reshape(sequence.n_frames, len(sequence.marker_names), 2)
+        depths = (world @ cv2.Rodrigues(rotation)[0].T + translation)[..., 2]
+        associated = project / "pose-associated" / f"{role}_json"
+        directory = associated if associated.is_dir() else project / "pose" / f"{role}_json"
+        frames = {}
+        for marker, frame, fps in sorted(requested):
+            if marker not in sequence.marker_names:
+                continue
+            if frame not in frames:
+                try:
+                    people = json.loads((directory / f"{role}_{frame:06d}.json").read_text()).get(
+                        "people", []
+                    )
+                    frames[frame] = (
+                        np.asarray(people[0]["pose_keypoints_2d"], dtype=float).reshape(-1, 3)
+                        if len(people) == 1
+                        else None
+                    )
+                except (OSError, ValueError, KeyError, TypeError):
+                    frames[frame] = None
+            points = frames[frame]
+            if points is None or len(points) <= MARKER_INDICES[marker]:
+                continue
+            point = points[MARKER_INDICES[marker]]
+            if not np.isfinite(point).all():
+                continue
+            if point[2] < 0.3:
+                failures[f"{role}/{marker}/{frame}"] = {
+                    "reason": "2D confidence below observation threshold",
+                    "value": float(point[2]),
+                    "threshold": 0.3,
+                    "unit": "score",
+                }
+                continue
+            local = int(np.argmin(np.abs(sequence.times - frame / fps)))
+            index = sequence.marker_names.index(marker)
+            error = float(np.linalg.norm(projected[local, index] - point[:2]))
+            limit = config.calibration.validation.max_tail_error_px
+            if np.isfinite(error) and error > limit:
+                failures[f"{role}/{marker}/{frame}"] = {
+                    "reason": "Reprojection error exceeds tolerance",
+                    "value": error,
+                    "threshold": limit,
+                    "unit": "px",
+                }
+            elif np.isfinite(depths[local, index]) and depths[local, index] <= 0:
+                failures[f"{role}/{marker}/{frame}"] = {
+                    "reason": "Point is behind the camera",
+                    "value": float(depths[local, index]),
+                    "threshold": 0,
+                    "unit": "m",
+                }
+    return {"available": True, "reason": None, "failures": failures}
+
+
 def verified_artifact_evidence(trc_path: Path) -> dict | None:
     path = trc_path.with_suffix(".evidence.json")
     if not path.exists():

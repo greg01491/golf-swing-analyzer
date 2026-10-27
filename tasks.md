@@ -22,6 +22,8 @@
 - [x] Add manual "capture now" trigger (dev/test button or CLI command) — `python -m golf_sim.capture.cli [--synthetic]`
 - [x] Verify two-camera timestamp sync approach (e.g. shared clock / sync test using a clap or flash) — shared time.monotonic() clock implemented + validated with synthetic sources; `golf_sim.capture.sync_check` tool built for a real-hardware clap/flash test (**still needs running against actual USB cameras** — no physical rig available in this dev environment)
 - [x] Write test: manual trigger produces two correctly-windowed clips
+- [x] Request MJPEG before high-rate camera mode negotiation; timestamp reads before rotation and preserve source receipt offsets through resampling (2026-10-21 capture timing investigation).
+- [ ] Verify physical club-motion correspondence on a fresh recording with the capture timing changes; equal output frame counts and timestamps do not prove exposure synchronization.
 
 ## Phase 2 — Audio Trigger Service
 - [x] Implement mic input stream reader — real (sounddevice) + synthetic sources, mirroring the capture module's pattern
@@ -53,7 +55,7 @@
 - [x] Store calibration result (reusable until camera moves) — rig calibration lives in `config/calibration/` (gitignored, machine-specific), auto-installed into each session's project before triangulation
 - [x] Implement triangulation via Pose2Sim: personAssociation → triangulation → Butterworth filtering in `pose/reconstruct.py`; output TRC (+c3d) stored with session in `pose2sim/pose-3d/` (FR15). Validated end-to-end on demo footage: 100/100 frames triangulated, 14.5s for the 3D stages
 - [x] Build the in-app calibration wizard UI (`frontend/src/components/CalibrationWizard.tsx`) — live per-camera preview (polled JPEG snapshots via new `/api/capture/preview/{camera}`), a 10-second countdown before each capture so the user has time to get in position/pose the board, running board-detection feedback per capture, a "distance between cameras" input, and a compute step with live progress + final reprojection-error/keypoint-match summary. Verified live in-browser against the real rig: countdown fires, capture completes, board-detection feedback updates correctly (0/6 when no board present, as expected)
-- [x] Check whether our own Phase 1/2 trigger-timestamp sync is sufficient — **yes, confirmed on real hardware**: manual/wizard captures on the actual rig produce identical, aligned frame counts per camera (see the resample-to-grid fix below)
+- [ ] Check whether Phase 1/2 trigger-timestamp sync is sufficient: the 2026-10-21 investigation reproduced held images and different club phases despite identical output frame numbers. The earlier equal-frame-count check did not establish physical exposure synchronization.
 - [x] Build a simple 3D landmark playback/plot to sanity-check output against real motion — `python -m golf_sim.pose.viewer <trc>` renders a sampled-frame skeleton grid; verified anatomically-coherent motion on demo output (known cosmetic issue: z-axis renders inverted)
 - [ ] Real-footage occlusion check (spec.md OQ4): confirm the down-the-line + face-on pair isn't losing key joints (e.g. trail arm) during the swing; revisit rig angle if it is — **still needs a real completed calibration + real swing** to check
 - [x] Add a "recalibration needed" check — `calibration_status()`: missing or older than `calibration.max_age_days` (config.yaml) → flagged; `python -m golf_sim.pose.cli status` and `/api/calibration/info`
@@ -109,6 +111,7 @@ Not in the original spec; added per request (2026-07-19).
 - [ ] Review tip wording for clarity/usefulness (manual pass) — **your call, Greg**: read the tip texts in `backend/src/golf_sim/analysis/tips.py` and edit any wording that doesn't sound like advice you'd actually want
 
 ## Phase 7 — Review UI
+- [x] Equal-sized Pro Mode viewports with external shared transport and independent camera zoom/pan/reset; browser-verified mixed portrait/landscape clips, annotation dragging, keyboard framing, session reset, looping, source/mode changes, and responsive layout
 - [x] Session browser screen (list past sessions, timestamps + 3D/metrics badges)
 - [x] Playback screen: video player (camera tabs) + canvas 3D skeleton animation synced to video time, with azimuth rotation slider
 - [x] Metrics panel (numbers + flagged/OK indicators + reference ranges)

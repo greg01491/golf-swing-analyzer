@@ -1,5 +1,26 @@
 # React + TypeScript + Vite
 
+## Swing review controls
+
+- Pro Mode gives down-the-line and face-on recordings equally sized viewing areas.
+  At 100%, the full recording is fitted without stretching or cropping; black padding
+  accommodates different camera orientations. Narrow windows stack the panels.
+- Play/pause (icon only), the shared timeline, frame stepping, elapsed time, and slow
+  motion are below the images, not over the ball. Pro Mode controls both recordings
+  together; single-camera review controls the active recording.
+- Each camera has independent zoom in/out, a zoom percentage, drag-to-pan, Reset view,
+  and full-screen controls. Zoom intentionally crops the magnified image within its
+  viewing area. Drag even at 100% to reposition the image. Reset view recenters and
+  fits only that camera, without changing playback.
+- Focus an image and use arrow keys to pan, or Space to play/pause. The transport
+  buttons and timeline also work with the keyboard. Dragging a reference-line handle
+  edits that line without panning the image.
+- Framing survives mode changes and skeleton-overlay toggles within the same swing.
+  Opening another swing starts with centered, full-recording views. Markers and
+  reference lines move with their recording, not with the surrounding controls.
+
+## Development
+
 This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
 
 Currently, two official plugins are available:

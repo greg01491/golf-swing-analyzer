@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
+import type { MetricRangeCompatibility } from '../api'
 import LivePreview from './LivePreview'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -94,9 +95,12 @@ export default function Settings() {
   const [message, setMessage] = useState<string | null>(null)
   const [failed, setFailed] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [rangeCompatibility, setRangeCompatibility] = useState<MetricRangeCompatibility | null>(null)
+  const [migratingRanges, setMigratingRanges] = useState(false)
 
   useEffect(() => {
     api.config().then((c) => setConfig(c as Cfg))
+    api.metricRangeStatus().then(setRangeCompatibility)
   }, [])
 
   if (!config) return <div className="panel">loading…</div>
@@ -135,6 +139,30 @@ export default function Settings() {
       setMessage(String(e))
     } finally {
       setSaving(false)
+    }
+  }
+
+  const migrateMetricRanges = async (action: 'accept_existing' | 'restore_defaults') => {
+    const confirmation =
+      action === 'accept_existing'
+        ? 'This will keep the visible ranges unchanged and mark them as reviewed for the current metric definitions. A backup will be saved first. Continue?'
+        : 'This will replace the visible reference ranges and club profiles with the shipped defaults. A backup will be saved first. Continue?'
+    if (!window.confirm(confirmation)) return
+
+    setMessage(null)
+    setFailed(false)
+    setMigratingRanges(true)
+    try {
+      const result = await api.migrateMetricRanges(action)
+      const [nextConfig, nextStatus] = await Promise.all([api.config(), api.metricRangeStatus()])
+      setConfig(nextConfig as Cfg)
+      setRangeCompatibility(nextStatus)
+      setMessage(`Ranges reviewed. Original configuration backed up as ${result.backup_file}.`)
+    } catch (error) {
+      setFailed(true)
+      setMessage(String(error))
+    } finally {
+      setMigratingRanges(false)
     }
   }
 
@@ -255,6 +283,29 @@ export default function Settings() {
           A swing metric is flagged when it falls outside these bounds. Adjust them to match
           your own targets.
         </p>
+        {rangeCompatibility && rangeCompatibility.status !== 'current' && (
+          <div className="range-compatibility" role="status">
+            <p>
+              {rangeCompatibility.status === 'legacy'
+                ? 'These ranges have no metric-definition version. Review the values below before marking them current.'
+                : `These ranges use unsupported metric-definition version ${rangeCompatibility.configured_version}. Review them below or restore the shipped defaults.`}
+            </p>
+            <div className="range-migration-actions">
+              <button
+                disabled={migratingRanges}
+                onClick={() => migrateMetricRanges('accept_existing')}
+              >
+                {migratingRanges ? 'Updating…' : 'Keep reviewed ranges'}
+              </button>
+              <button
+                disabled={migratingRanges}
+                onClick={() => migrateMetricRanges('restore_defaults')}
+              >
+                Restore shipped ranges
+              </button>
+            </div>
+          </div>
+        )}
         <div className="field-list">
           {Object.entries(config.metrics.reference_ranges as Cfg).map(([metric, range]) => (
             <div key={metric} className="range-row">

@@ -47,3 +47,26 @@ def test_nearest_frame_selection():
 def test_empty_frames_raise():
     with pytest.raises(ValueError):
         resample_to_grid([], 0.0, 1.0, fps=30)
+
+
+def test_held_source_frames_keep_receipt_time_instead_of_grid_time():
+    frames = _frames([10.0, 10.05, 10.1])
+
+    out = resample_to_grid(frames, 10.0, 0.1, fps=120)
+
+    assert out[1].timestamp == pytest.approx(10.0 + 1 / 120)
+    assert out[1].source_timestamp == 10.0
+    assert out[2].source_timestamp == 10.0
+    assert out[4].source_timestamp == 10.05
+    assert out[4].image is frames[1].image
+
+
+def test_resampling_preserves_original_receipt_provenance():
+    frames = _frames([10.0, 10.05, 10.1])
+    first = resample_to_grid(frames, 10.0, 0.1, fps=120)
+
+    second = resample_to_grid(first, 10.0, 0.1, fps=120)
+
+    assert [frame.source_timestamp for frame in second] == [
+        frame.source_timestamp for frame in first
+    ]

@@ -64,6 +64,7 @@ Deliver a working local pipeline: mic-triggered dual-camera capture → 3D pose 
 ### Phase 7 — Review UI
 - Session browser (list of past swings).
 - Playback view: video + 3D skeleton animation, synced.
+- Equal-sized Pro Mode viewports, external shared playback controls, and independent per-camera zoom/pan/reset with image-aligned annotations; preserve single-camera review and keyboard access.
 - Metrics + tips panel.
 - Confidence-aware review, speech and comparable history; legacy results stay inspectable without current verdicts or coaching, with explicit saved-3D reanalysis.
 - Settings screens for all configurable parameters (§7 of spec).

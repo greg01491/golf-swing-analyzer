@@ -4,12 +4,13 @@ from pathlib import Path
 import pytest
 import yaml
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 from golf_sim.api.runtime import CaptureRuntime
-from golf_sim.api.server import create_app
+from golf_sim.api.server import MetricReviewAnnotation, create_app
 from golf_sim.audio.source import SyntheticAudioSource
 from golf_sim.capture.source import SyntheticCameraSource
-from golf_sim.config import Config, load_config
+from golf_sim.config import CURRENT_METRIC_RANGE_DEFINITION_VERSION, Config, load_config
 
 
 @pytest.fixture
@@ -166,6 +167,183 @@ def test_reanalysis_requires_saved_3d_without_modifying_legacy_results(client, c
     assert response.status_code == 409
     assert processor.calls == []
     assert (session_dir / "metrics.json").read_bytes() == before
+
+
+def test_review_annotations_roundtrip_without_rewriting_session_evidence(client, config):
+    session_dir = _fake_session(config, session_id="review-annotations-test")
+    original_metrics = (session_dir / "metrics.json").read_bytes()
+    original_metadata = (session_dir / "metadata.json").read_bytes()
+    annotations = {
+        "version": 1,
+        "marker_annotations": [
+            {
+                "camera": "camera_1",
+                "frame_index": 172,
+                "marker": "RHip",
+                "label": "occluded",
+                "note": "Trail hip hidden behind lead hip in DTL view.",
+            },
+            {
+                "camera": "camera_2",
+                "frame_index": 172,
+                "marker": "RHip",
+                "label": "correct",
+                "note": "Separate camera-specific observation.",
+            },
+        ],
+        "metric_annotations": [
+            {
+                "metric": "hip_turn_deg",
+                "definition_id": "hip_turn_deg:2",
+                "label": "uncertain",
+                "expected_value": None,
+                "unit": "deg",
+                "note": "Cannot judge until pelvis reconstruction is validated.",
+            }
+        ],
+    }
+
+    saved = client.put(f"/api/sessions/{session_dir.name}/review", json=annotations)
+
+    assert saved.status_code == 200
+    assert saved.json() == annotations
+    assert client.get(f"/api/sessions/{session_dir.name}/review").json() == annotations
+    assert json.loads((session_dir / "review_annotations.json").read_text()) == annotations
+    assert (session_dir / "metrics.json").read_bytes() == original_metrics
+    assert (session_dir / "metadata.json").read_bytes() == original_metadata
+
+
+def test_review_annotations_reject_invalid_camera_and_frame(client, config):
+    session_dir = _fake_session(config, session_id="invalid-review-annotations-test")
+    response = client.put(
+        f"/api/sessions/{session_dir.name}/review",
+        json={
+            "version": 1,
+            "marker_annotations": [
+                {
+                    "camera": "camera_3",
+                    "frame_index": -1,
+                    "marker": "RHip",
+                    "label": "occluded",
+                }
+            ],
+            "metric_annotations": [],
+        },
+    )
+
+    assert response.status_code == 422
+    assert not (session_dir / "review_annotations.json").exists()
+
+
+def test_session_pose_keypoint_returns_camera_frame_coordinate(client, config):
+    session_dir = _fake_session(config, session_id="review-keypoint-coordinate-test")
+    metadata_path = session_dir / "metadata.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["cameras"] = {
+        "camera_1": {"width": 1280, "height": 720},
+        "camera_2": {"width": 720, "height": 1280},
+    }
+    metadata_path.write_text(json.dumps(metadata))
+    pose_dir = session_dir / "pose2sim" / "pose-associated" / "camera_2_json"
+    pose_dir.mkdir(parents=True)
+    keypoints = [[0.0, 0.0, 0.0] for _ in range(26)]
+    keypoints[12] = [357.09, 663.45, 0.64]
+    (pose_dir / "camera_2_000172.json").write_text(
+        json.dumps(
+            {"people": [{"pose_keypoints_2d": [value for point in keypoints for value in point]}]}
+        )
+    )
+
+    response = client.get(f"/api/sessions/{session_dir.name}/keypoint/camera_2/172/RHip")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "camera": "camera_2",
+        "frame_index": 172,
+        "marker": "RHip",
+        "x": 357.09,
+        "y": 663.45,
+        "confidence": 0.64,
+        "width": 720,
+        "height": 1280,
+    }
+
+
+def test_review_issues_endpoint_is_read_only_and_reports_missing_evidence(
+    client, config, monkeypatch
+):
+    import golf_sim.analysis.cli as analysis
+
+    directory = _fake_session(config, session_id="review-issues-test")
+    before = {path.name: path.read_bytes() for path in directory.iterdir()}
+    response = client.get(f"/api/sessions/{directory.name}/review/issues")
+    assert response.status_code == 409
+    assert client.get("/api/sessions/missing/review/issues").status_code == 404
+    payload = {"diagnostic_only": True, "issues": [], "blockers": [], "metrics": []}
+    monkeypatch.setattr(analysis, "session_review_issues", lambda *args: payload)
+    assert client.get(f"/api/sessions/{directory.name}/review/issues").json() == payload
+    assert {path.name: path.read_bytes() for path in directory.iterdir()} == before
+
+
+def test_metric_review_annotation_rejects_nonfinite_expected_value():
+    with pytest.raises(ValidationError):
+        MetricReviewAnnotation.model_validate(
+            {
+                "metric": "hip_turn_deg",
+                "definition_id": "hip_turn_deg:2",
+                "label": "incorrect",
+                "expected_value": float("nan"),
+                "unit": "deg",
+            }
+        )
+
+
+def test_review_what_if_requires_saved_annotation_and_preserves_original_metrics(
+    client, config, monkeypatch
+):
+    session_dir = _fake_session(config, session_id="review-what-if-test")
+    original_metrics = (session_dir / "metrics.json").read_bytes()
+    client.put(
+        f"/api/sessions/{session_dir.name}/review",
+        json={
+            "version": 1,
+            "marker_annotations": [
+                {
+                    "camera": "camera_1",
+                    "frame_index": 50,
+                    "marker": "RHip",
+                    "label": "occluded",
+                }
+            ],
+            "metric_annotations": [],
+        },
+    )
+    calls = []
+
+    def diagnostic(directory, active_config, exclusions):
+        calls.append((directory, exclusions))
+        return {"diagnostic_only": True, "metrics": []}
+
+    monkeypatch.setattr("golf_sim.analysis.cli.analyze_session_what_if", diagnostic)
+    endpoint = f"/api/sessions/{session_dir.name}/review/what-if"
+    unreviewed = client.post(
+        endpoint,
+        json={"exclusions": [{"camera": "camera_2", "frame_index": 50, "marker": "RHip"}]},
+    )
+    assert unreviewed.status_code == 422
+    assert calls == []
+
+    response = client.post(
+        endpoint,
+        json={"exclusions": [{"camera": "camera_1", "frame_index": 50, "marker": "RHip"}]},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["diagnostic_only"] is True
+    assert len(calls) == 1
+    assert calls[0][0] == session_dir
+    assert calls[0][1][0]["marker"] == "RHip"
+    assert (session_dir / "metrics.json").read_bytes() == original_metrics
 
 
 def test_explicit_reanalysis_does_not_rerun_pose_pipeline(client, config, processor, monkeypatch):
@@ -454,6 +632,95 @@ def test_config_roundtrip_and_validation(client, tmp_path):
 
     invalid = {"audio_trigger": {"nonsense": True}}
     assert client.put("/api/config", json=invalid).status_code == 422
+
+
+@pytest.mark.parametrize(
+    ("version", "expected_status"),
+    [
+        (None, "legacy"),
+        (1, "unsupported"),
+        (99, "unsupported"),
+        (CURRENT_METRIC_RANGE_DEFINITION_VERSION, "current"),
+    ],
+)
+def test_metric_range_status_identifies_legacy_and_unsupported_versions(
+    tmp_path, config, processor, version, expected_status
+):
+    raw = json.loads(config.model_dump_json())
+    if version is None:
+        raw["metrics"].pop("range_definition_version", None)
+    else:
+        raw["metrics"]["range_definition_version"] = version
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.safe_dump(raw))
+    test_client, runtime = _make_client(config, config_path, processor)
+
+    with test_client:
+        response = test_client.get("/api/config/metric-ranges/status")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == expected_status
+    assert response.json()["configured_version"] == version
+    assert response.json()["current_version"] == CURRENT_METRIC_RANGE_DEFINITION_VERSION
+    runtime.stop()
+
+
+def test_accept_reviewed_metric_ranges_migration_backs_up_and_preserves_custom_values(
+    tmp_path, config, processor
+):
+    raw = json.loads(config.model_dump_json())
+    raw["metrics"].pop("range_definition_version", None)
+    raw["metrics"]["reference_ranges"]["shoulder_turn_deg"] = {"min": 73, "max": 97}
+    config_path = tmp_path / "config.yaml"
+    original = "# user comment\n" + yaml.safe_dump(raw)
+    config_path.write_text(original)
+    test_client, runtime = _make_client(config, config_path, processor)
+
+    with test_client:
+        response = test_client.post(
+            "/api/config/metric-ranges/migrate", json={"action": "accept_existing"}
+        )
+
+    assert response.status_code == 200
+    migrated = yaml.safe_load(config_path.read_text())
+    assert migrated["metrics"]["range_definition_version"] == (
+        CURRENT_METRIC_RANGE_DEFINITION_VERSION
+    )
+    assert migrated["metrics"]["reference_ranges"]["shoulder_turn_deg"] == {
+        "min": 73,
+        "max": 97,
+    }
+    assert "# user comment" in config_path.read_text()
+    backup_path = config_path.parent / response.json()["backup_file"]
+    assert backup_path.read_text() == original
+    assert test_client.get("/api/config/metric-ranges/status").json()["status"] == "current"
+    runtime.stop()
+
+
+def test_restore_defaults_metric_ranges_migration_replaces_unknown_version(
+    tmp_path, config, processor
+):
+    raw = json.loads(config.model_dump_json())
+    raw["metrics"]["range_definition_version"] = 99
+    raw["metrics"]["reference_ranges"]["shoulder_turn_deg"] = {"min": 1, "max": 2}
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.safe_dump(raw))
+    test_client, runtime = _make_client(config, config_path, processor)
+
+    with test_client:
+        response = test_client.post(
+            "/api/config/metric-ranges/migrate", json={"action": "restore_defaults"}
+        )
+
+    assert response.status_code == 200
+    migrated = yaml.safe_load(config_path.read_text())["metrics"]
+    shipped = load_config().metrics
+    assert migrated["range_definition_version"] == CURRENT_METRIC_RANGE_DEFINITION_VERSION
+    assert migrated["reference_ranges"] == {
+        name: values.model_dump() for name, values in shipped.reference_ranges.items()
+    }
+    assert config_path.with_name(response.json()["backup_file"]).exists()
+    runtime.stop()
 
 
 def test_config_save_preserves_launcher_storage_overrides(config, processor, tmp_path, monkeypatch):

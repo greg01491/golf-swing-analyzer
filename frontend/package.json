@@ -1,7 +1,7 @@
 {
   "name": "golf-swing-analyzer",
   "private": true,
-  "version": "0.1.19",
+  "version": "0.1.20",
   "description": "Desktop golf swing capture and 3D pose analysis",
   "author": "Greg Brown",
   "repository": {

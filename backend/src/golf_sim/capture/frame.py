@@ -13,3 +13,4 @@ class Frame:
 
     timestamp: float
     image: np.ndarray
+    source_timestamp: float | None = None

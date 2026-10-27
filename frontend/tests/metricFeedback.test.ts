@@ -7,6 +7,7 @@ import {
   comparableMetricSeries,
   eligibleTips,
   metricStatus,
+  metricReason,
   metricSummary,
   spokenMetricFeedback,
 } from '../src/metricFeedback.ts'
@@ -53,6 +54,30 @@ test('uncertain and legacy measurements cannot supply tips or spoken verdicts', 
     assert.doesNotMatch(speech, /UNSAFE|target range/)
     assert.match(spokenMetricFeedback(analysis, null), /incomplete/)
   }
+})
+
+test('estimated measurement values remain distinct from unavailable values and explain incompatibility', () => {
+  const estimated = {
+    ...measurements()[0],
+    value: 82.5,
+    status: 'estimated' as const,
+    in_range: null,
+    range: null,
+    reasons: ['incompatible_target: target definition version requires review'],
+  }
+  const unavailable = {
+    ...estimated,
+    value: null,
+    status: 'unavailable' as const,
+    reasons: ['insufficient_coverage: required observations are missing or invalid'],
+  }
+
+  assert.equal(metricStatus(estimated), 'estimated')
+  assert.equal(estimated.value, 82.5)
+  assert.equal(metricReason(estimated), 'target definition version requires review')
+  assert.equal(metricStatus(unavailable), 'unavailable')
+  assert.equal(unavailable.value, null)
+  assert.equal(metricReason(unavailable), 'required observations are missing or invalid')
 })
 
 test('history separates targets and clubs and excludes incompatible definitions', () => {

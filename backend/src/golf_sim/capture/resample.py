@@ -6,9 +6,9 @@ the other paced correctly at 60fps. Saving raw read sequences would give the
 two cameras different frame counts for the same time window, and Pose2Sim's
 triangulation pairs cameras *by frame index* -- so the pairing would drift.
 
-Snapping every clip to the same timestamp grid (nearest frame per grid
-instant) makes both cameras' clips identical in length and time-aligned by
-construction, and also absorbs occasional dropped frames.
+Snapping every clip to the same timestamp grid makes their output timelines
+equal, not their exposure times. Preserve source receipt times so repeated
+selections and receipt-to-grid errors remain observable.
 """
 
 from __future__ import annotations
@@ -31,5 +31,16 @@ def resample_to_grid(
         right = min(right, len(frames) - 1)
         left = max(right - 1, 0)
         best = left if abs(stamps[left] - target) <= abs(stamps[right] - target) else right
-        out.append(Frame(timestamp=float(grid[len(out)]), image=frames[best].image))
+        source = frames[best]
+        out.append(
+            Frame(
+                timestamp=float(target),
+                image=source.image,
+                source_timestamp=(
+                    source.source_timestamp
+                    if source.source_timestamp is not None
+                    else source.timestamp
+                ),
+            )
+        )
     return out

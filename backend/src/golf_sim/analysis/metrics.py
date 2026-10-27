@@ -9,7 +9,7 @@ import numpy as np
 
 from golf_sim.analysis.frame_of_reference import AnalysisReference, infer_reference
 from golf_sim.analysis.phases import PhaseDetectionError, SwingPhases, detect_phases
-from golf_sim.config import Club, MetricsConfig
+from golf_sim.config import CURRENT_METRIC_RANGE_DEFINITION_VERSION, Club, MetricsConfig
 from golf_sim.trc import LandmarkSequence
 
 
@@ -24,6 +24,7 @@ class MetricResult:
     status: Literal["valid", "estimated", "unavailable"] = "valid"
     definition_id: str = ""
     reasons: list[str] = field(default_factory=list)
+    review_issues: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -51,6 +52,7 @@ class MetricsReport:
                     "definition_id": m.definition_id or f"{m.name}:2",
                     "status": m.status,
                     "reasons": m.reasons,
+                    "review_issues": m.review_issues,
                     "range": (
                         None if m.range_min is None else {"min": m.range_min, "max": m.range_max}
                     ),
@@ -182,19 +184,51 @@ def compute_metrics(
         reasons: list[str] = []
         required = active if frames is None else frames
         coverage = np.ones(len(required), dtype=bool)
+        review_issues: list[dict] = []
+
+        def record_issue(marker_name: str | None, reason: str, rejected: np.ndarray) -> None:
+            if not timestamps_valid:
+                return
+            indices = required[rejected]
+            for group in np.split(indices, np.flatnonzero(np.diff(indices) != 1) + 1):
+                if not group.size:
+                    continue
+                first, last = int(group[0]), int(group[-1])
+                review_issues.append(
+                    {
+                        "marker": marker_name,
+                        "reason": reason,
+                        "start_frame": first,
+                        "end_frame": last,
+                        "start_time_s": float(seq.times[first]),
+                        "end_time_s": float(seq.times[last]),
+                    }
+                )
+
         for marker_name in markers:
-            coverage &= np.isfinite(marker(marker_name)[required]).all(axis=1)
+            finite = np.isfinite(marker(marker_name)[required]).all(axis=1)
+            coverage &= finite
+            record_issue(marker_name, "Missing or non-finite 3D marker", ~finite)
             evidence = None if marker_support is None else marker_support.get(marker_name)
             if evidence is None:
                 reasons.append(
                     f"unverified_marker: {marker_name} has no independent observation support"
                 )
+                record_issue(marker_name, "Independent observation support unavailable", finite)
             elif np.asarray(evidence).shape != (seq.n_frames,):
                 coverage[:] = False
                 reasons.append(f"invalid_support: {marker_name}")
+                record_issue(marker_name, "Invalid observation support length", finite)
             else:
-                coverage &= np.asarray(evidence, dtype=bool)[required]
+                accepted = np.asarray(evidence, dtype=bool)[required]
+                record_issue(
+                    marker_name,
+                    "Observation or reconstruction support rejected",
+                    finite & ~accepted,
+                )
+                coverage &= accepted
         if supported is not None:
+            record_issue(None, "Combined metric geometry rejected", coverage & ~supported[required])
             coverage &= supported[required]
         if not coverage.size or coverage.mean() < metrics_config.min_supported_fraction:
             value = float("nan")
@@ -217,14 +251,18 @@ def compute_metrics(
         if not scale_valid:
             value = float("nan")
             reasons.append("invalid_scale: reconstructed pelvis height is implausible")
+        ref = (
+            reference_ranges.get(name)
+            if metrics_config.range_definition_version == CURRENT_METRIC_RANGE_DEFINITION_VERSION
+            else None
+        )
+        if name in reference_ranges and ref is None:
+            reasons.append("incompatible_target: target definition version requires review")
         if not np.isfinite(value):
             status = "unavailable"
             reasons.append("unsupported_geometry: required geometry is missing or degenerate")
         elif reasons:
             status = "estimated"
-        ref = reference_ranges.get(name) if metrics_config.range_definition_version == 2 else None
-        if name in reference_ranges and ref is None:
-            reasons.append("incompatible_target: target definition version requires review")
         lo, hi = (None, None) if ref is None else (ref.min, ref.max)
         in_range = bool(lo <= value <= hi) if ref is not None and status == "valid" else None
         results.append(
@@ -238,6 +276,7 @@ def compute_metrics(
                 status=status,
                 definition_id=f"{name}:2",
                 reasons=list(dict.fromkeys(reasons)),
+                review_issues=review_issues,
             )
         )
 

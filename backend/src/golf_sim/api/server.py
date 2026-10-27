@@ -13,11 +13,13 @@ import os
 import threading
 from collections.abc import Callable
 from pathlib import Path
+from time import time_ns
+from typing import Literal
 
 import yaml
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from ruamel.yaml import YAML
 
 from golf_sim.api.runtime import CaptureRuntime
@@ -25,19 +27,24 @@ from golf_sim.api.sessions import (
     delete_all_session_media,
     delete_session_media,
     list_sessions,
+    save_session_review_annotations,
     session_detail,
     session_dir_for,
+    session_keypoint,
     session_landmarks,
+    session_review_annotations,
     sessions_stats,
     set_session_meta,
 )
 from golf_sim.config import (
     CLUB_LABELS,
+    CURRENT_METRIC_RANGE_DEFINITION_VERSION,
     DEFAULT_CONFIG_PATH,
     Club,
     Config,
     load_config,
     resolve_state_path,
+    shipped_config_path,
 )
 
 logger = logging.getLogger(__name__)
@@ -45,6 +52,72 @@ logger = logging.getLogger(__name__)
 
 class ClubSelection(BaseModel):
     club: Club
+
+
+class MetricRangeMigrationRequest(BaseModel):
+    action: Literal["accept_existing", "restore_defaults"]
+
+
+class MarkerReviewAnnotation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    camera: Literal["camera_1", "camera_2"]
+    frame_index: int = Field(ge=0)
+    marker: str = Field(min_length=1, max_length=64)
+    label: Literal["correct", "occluded", "mislocalized", "uncertain"]
+    note: str | None = Field(default=None, max_length=2000)
+
+
+class MetricReviewAnnotation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    metric: str = Field(min_length=1, max_length=64)
+    definition_id: str = Field(min_length=1, max_length=128)
+    label: Literal["correct", "incorrect", "uncertain"]
+    expected_value: float | None = Field(default=None, allow_inf_nan=False)
+    unit: str | None = Field(default=None, max_length=32)
+    note: str | None = Field(default=None, max_length=2000)
+
+
+class SessionReviewAnnotations(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    version: Literal[1] = 1
+    marker_annotations: list[MarkerReviewAnnotation] = Field(default_factory=list)
+    metric_annotations: list[MetricReviewAnnotation] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def annotations_are_unique(self):
+        marker_keys = [
+            (item.camera, item.frame_index, item.marker) for item in self.marker_annotations
+        ]
+        if len(marker_keys) != len(set(marker_keys)):
+            raise ValueError("marker annotations must be unique per camera/frame/marker")
+        metric_keys = [(item.metric, item.definition_id) for item in self.metric_annotations]
+        if len(metric_keys) != len(set(metric_keys)):
+            raise ValueError("metric annotations must be unique per metric definition")
+        return self
+
+
+class ReviewMarkerExclusion(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    camera: Literal["camera_1", "camera_2"]
+    frame_index: int = Field(ge=0)
+    marker: str = Field(min_length=1, max_length=64)
+
+
+class ReviewWhatIfRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    exclusions: list[ReviewMarkerExclusion] = Field(min_length=1, max_length=200)
+
+    @model_validator(mode="after")
+    def exclusions_are_unique(self):
+        keys = [(item.camera, item.frame_index, item.marker) for item in self.exclusions]
+        if len(keys) != len(set(keys)):
+            raise ValueError("what-if exclusions must be unique per camera/frame/marker")
+        return self
 
 
 def _deep_update(target, source: dict) -> None:
@@ -319,6 +392,82 @@ def create_app(
         except FileNotFoundError as exc:
             raise HTTPException(404, str(exc)) from exc
 
+    @app.get("/api/sessions/{session_id}/keypoint/{camera}/{frame_index}/{marker}")
+    def get_session_keypoint(session_id: str, camera: str, frame_index: int, marker: str):
+        try:
+            keypoint = session_keypoint(data_dir, session_id, camera, frame_index, marker)
+        except FileNotFoundError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        if keypoint is None:
+            raise HTTPException(404, "2D marker coordinate is unavailable for this frame")
+        return keypoint
+
+    @app.get("/api/sessions/{session_id}/review")
+    def get_session_review(session_id: str):
+        try:
+            annotations = session_review_annotations(data_dir, session_id)
+            return SessionReviewAnnotations.model_validate(annotations).model_dump(mode="json")
+        except FileNotFoundError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(409, f"saved review annotations are invalid: {exc}") from exc
+
+    @app.get("/api/sessions/{session_id}/review/issues")
+    def get_session_review_issues(session_id: str):
+        from golf_sim.analysis.cli import session_review_issues
+
+        try:
+            directory = session_dir_for(data_dir, session_id)
+        except FileNotFoundError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        try:
+            return session_review_issues(directory, config)
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            raise HTTPException(409, f"review evidence unavailable: {exc}") from exc
+
+    @app.put("/api/sessions/{session_id}/review")
+    def put_session_review(session_id: str, annotations: SessionReviewAnnotations):
+        payload = annotations.model_dump(mode="json")
+        try:
+            save_session_review_annotations(data_dir, session_id, payload)
+        except FileNotFoundError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        return payload
+
+    @app.post("/api/sessions/{session_id}/review/what-if")
+    def session_review_what_if(session_id: str, request: ReviewWhatIfRequest):
+        from golf_sim.analysis.cli import analyze_session_what_if
+
+        try:
+            session_dir_for(data_dir, session_id)
+            saved = SessionReviewAnnotations.model_validate(
+                session_review_annotations(data_dir, session_id)
+            )
+        except FileNotFoundError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(409, f"saved review annotations are invalid: {exc}") from exc
+
+        reviewed = {
+            (item.camera, item.frame_index, item.marker) for item in saved.marker_annotations
+        }
+        requested = {(item.camera, item.frame_index, item.marker) for item in request.exclusions}
+        if not requested <= reviewed:
+            raise HTTPException(422, "what-if exclusions must reference saved marker annotations")
+
+        try:
+            return analyze_session_what_if(
+                session_dir_for(data_dir, session_id),
+                config,
+                [item.model_dump() for item in request.exclusions],
+            )
+        except FileNotFoundError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(409, f"what-if analysis unavailable: {exc}") from exc
+
     @app.patch("/api/sessions/{session_id}")
     def patch_session(session_id: str, patch: dict):
         # move a swing into a group ("My Swings"/"Professional Swings") and/or
@@ -442,6 +591,72 @@ def create_app(
     @app.get("/api/config")
     def get_config():
         return yaml.safe_load(Path(config_path).read_text())
+
+    @app.get("/api/config/metric-ranges/status")
+    def get_metric_range_status():
+        raw = yaml.safe_load(Path(config_path).read_text()) or {}
+        metrics = raw.get("metrics") or {}
+        configured_version = metrics.get("range_definition_version")
+        if configured_version == CURRENT_METRIC_RANGE_DEFINITION_VERSION:
+            status = "current"
+        elif configured_version is None:
+            status = "legacy"
+        else:
+            status = "unsupported"
+        return {
+            "status": status,
+            "configured_version": configured_version,
+            "current_version": CURRENT_METRIC_RANGE_DEFINITION_VERSION,
+            "reference_range_count": len(metrics.get("reference_ranges") or {}),
+            "club_profile_count": len(metrics.get("club_profiles") or {}),
+        }
+
+    @app.post("/api/config/metric-ranges/migrate")
+    def migrate_metric_ranges(request: MetricRangeMigrationRequest):
+        nonlocal config
+        path = Path(config_path)
+        original = path.read_bytes()
+        raw = yaml.safe_load(original) or {}
+        metrics = raw.get("metrics")
+        if not isinstance(metrics, dict):
+            raise HTTPException(422, "configuration has no valid metrics section")
+        if metrics.get("range_definition_version") == CURRENT_METRIC_RANGE_DEFINITION_VERSION:
+            raise HTTPException(409, "metric ranges already use the current definition")
+
+        if request.action == "restore_defaults":
+            default_metrics = load_config(shipped_config_path()).metrics
+            metrics["reference_ranges"] = {
+                name: value.model_dump() for name, value in default_metrics.reference_ranges.items()
+            }
+            metrics["club_profiles"] = {
+                profile: {name: value.model_dump() for name, value in ranges.items()}
+                for profile, ranges in default_metrics.club_profiles.items()
+            }
+            metrics["club_profile_mapping"] = default_metrics.club_profile_mapping
+        metrics["range_definition_version"] = CURRENT_METRIC_RANGE_DEFINITION_VERSION
+        try:
+            validated = Config.model_validate(raw)
+        except Exception as exc:
+            raise HTTPException(422, f"invalid config after metric range migration: {exc}") from exc
+
+        backup_file = f"{path.name}.before-metric-range-migration-{time_ns()}.bak"
+        backup_path = path.with_name(backup_file)
+        backup_path.write_bytes(original)
+        try:
+            _write_config_preserving_comments(path, {"metrics": metrics})
+            validated = apply_env_overrides(validated)
+        except Exception:
+            path.write_bytes(original)
+            raise
+
+        runtime.config = validated
+        config = validated
+        return {
+            "status": "migrated",
+            "action": request.action,
+            "current_version": CURRENT_METRIC_RANGE_DEFINITION_VERSION,
+            "backup_file": backup_file,
+        }
 
     @app.put("/api/config")
     def put_config(new_config: dict):

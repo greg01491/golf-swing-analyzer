@@ -75,10 +75,6 @@ class CaptureService:
         pre = self.config.audio_trigger.pre_capture_delay_s
         duration = self.config.audio_trigger.capture_duration_s
 
-        # Snap every camera's window onto the same exact fps grid: real
-        # drivers duplicate/drop frames unpredictably (one rig camera read at
-        # ~2x its true rate), and downstream triangulation pairs cameras by
-        # frame index -- so identical, time-aligned frame counts are required.
         start_time = trigger_time - pre
         clips = {}
         for role, stream in self.streams.items():
@@ -87,6 +83,7 @@ class CaptureService:
             self.camera_meta[role].update(
                 {
                     "geometry_controls": getattr(stream.source, "control_readbacks", {}),
+                    "capture_mode": getattr(stream.source, "capture_mode", {}),
                     "source_frame_count": len(raw),
                     "source_duration_s": round(raw_duration, 6),
                     "source_effective_fps": (
@@ -98,6 +95,9 @@ class CaptureService:
             clips[role] = resample_to_grid(
                 raw, start_time, duration, fps=self.camera_meta[role]["fps"]
             )
+            self.camera_meta[role]["source_receipt_offsets_s"] = [
+                round(frame.source_timestamp - start_time, 6) for frame in clips[role]
+            ]
         return self.writer.write_session(
             clips,
             self.camera_meta,

@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState, type PointerEvent } from 'react'
+import { createPortal } from 'react-dom'
+import { imagePointFromClient } from '../videoFraming'
 
 interface LineState {
   x1: number
@@ -104,13 +106,11 @@ function SwingPlaneLineOverlay({
   const pointFromEvent = (event: PointerEvent<SVGSVGElement>) => {
     const rect = svgRef.current?.getBoundingClientRect()
     if (!rect) return null
-    return {
-      x: Math.min(100, Math.max(0, ((event.clientX - rect.left) / rect.width) * 100)),
-      y: Math.min(100, Math.max(0, ((event.clientY - rect.top) / rect.height) * 100)),
-    }
+    return imagePointFromClient(event.clientX, event.clientY, rect)
   }
   const startDrag = (which: 'p1' | 'p2') => (event: PointerEvent<SVGCircleElement>) => {
     event.preventDefault()
+    event.stopPropagation()
     draggingRef.current = which
     event.currentTarget.setPointerCapture(event.pointerId)
   }
@@ -133,7 +133,8 @@ function SwingPlaneLineOverlay({
       preserveAspectRatio="none"
       onPointerMove={onPointerMove}
       onPointerUp={stopDrag}
-      onPointerLeave={stopDrag}
+      onPointerCancel={stopDrag}
+      onLostPointerCapture={stopDrag}
     >
       {lines.map((line, index) =>
         line.visible ? (
@@ -165,7 +166,7 @@ function SwingPlaneLineOverlay({
   )
 }
 
-export default function SwingPlaneLine({ camera }: { camera: string }) {
+export default function SwingPlaneLine({ camera, toolbarTarget }: { camera: string; toolbarTarget?: HTMLDivElement | null }) {
   const {
     lines,
     selectedIndex,
@@ -178,9 +179,8 @@ export default function SwingPlaneLine({ camera }: { camera: string }) {
     movePoint,
   } = useSwingPlaneLines(camera)
 
-  return (
-    <>
-      <div className="swing-plane-line-toolbar">
+  const toolbar = (
+      <div className="swing-plane-line-toolbar" onPointerDown={(event) => event.stopPropagation()}>
         <button type="button" onClick={addLine} disabled={lines.length >= MAX_LINES}>
           + line ({lines.length}/{MAX_LINES})
         </button>
@@ -218,6 +218,10 @@ export default function SwingPlaneLine({ camera }: { camera: string }) {
           </>
         )}
       </div>
+  )
+  return (
+    <>
+      {toolbarTarget ? createPortal(toolbar, toolbarTarget) : toolbarTarget === undefined ? toolbar : null}
       <SwingPlaneLineOverlay
         lines={lines}
         selectedIndex={selectedIndex}

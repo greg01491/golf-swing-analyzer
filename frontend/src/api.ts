@@ -29,6 +29,87 @@ export interface MetricEntry {
   reasons?: string[]
 }
 
+export type MarkerReviewLabel = 'correct' | 'occluded' | 'mislocalized' | 'uncertain'
+export type MetricReviewLabel = 'correct' | 'incorrect' | 'uncertain'
+
+export interface MarkerReviewAnnotation {
+  camera: 'camera_1' | 'camera_2'
+  frame_index: number
+  marker: string
+  label: MarkerReviewLabel
+  note: string | null
+}
+
+export interface MetricReviewAnnotation {
+  metric: string
+  definition_id: string
+  label: MetricReviewLabel
+  expected_value: number | null
+  unit: string | null
+  note: string | null
+}
+
+export interface SessionReviewAnnotations {
+  version: 1
+  marker_annotations: MarkerReviewAnnotation[]
+  metric_annotations: MetricReviewAnnotation[]
+}
+
+export interface ReviewWhatIfResult {
+  analysis_version: number
+  metrics: MetricEntry[]
+  tips: TipEntry[]
+  diagnostic_only: true
+  warning: string
+  exclusions: Array<{
+    camera: 'camera_1' | 'camera_2'
+    frame_index: number
+    marker: string
+    trc_frame_index: number
+    trc_time_s: number
+  }>
+}
+
+export interface SessionPoseKeypoint {
+  camera: 'camera_1' | 'camera_2'
+  frame_index: number
+  marker: string
+  x: number
+  y: number
+  confidence: number
+  width: number
+  height: number
+}
+
+export interface ReviewIssue {
+  metric: string
+  marker: string | null
+  camera: 'camera_1' | 'camera_2' | null
+  frame_indices: number[]
+  fps: number | null
+  start_time_s: number
+  end_time_s: number
+  reason: string
+  camera_attribution: 'not_isolated' | 'camera_check_failed'
+  mapping_reason: string | null
+  measurements?: Record<string, {
+    reason: string
+    value: number
+    threshold: number
+    unit: 'px' | 'm' | 'score'
+  }>
+}
+
+export interface SessionReviewIssues {
+  diagnostic_only: true
+  warning: string
+  metrics: MetricEntry[]
+  issues: ReviewIssue[]
+  tolerance_issues?: ReviewIssue[]
+  tolerance_check?: { available: boolean; reason: string | null }
+  blockers: Array<{ metric: string; reasons: string[] }>
+}
+
 export interface TipEntry {
   metric: string
   direction: string
@@ -122,6 +203,14 @@ export interface StartupStatus {
   audio_ready: boolean
   audio_device: number | null
   messages: string[]
+}
+
+export interface MetricRangeCompatibility {
+  status: 'current' | 'legacy' | 'unsupported'
+  configured_version: number | null
+  current_version: number
+  reference_range_count: number
+  club_profile_count: number
 }
 
 export interface CalibrationInfo {
@@ -284,6 +373,36 @@ export const api = {
   processStatus: (id: string) =>
     fetch(`${BASE}/api/sessions/${id}/process`).then((r) => json<{ status: string }>(r)),
   config: () => fetch(`${BASE}/api/config`).then((r) => json<Record<string, unknown>>(r)),
+  sessionReview: (id: string) =>
+    fetch(`${BASE}/api/sessions/${id}/review`).then((r) => json<SessionReviewAnnotations>(r)),
+  sessionReviewIssues: (id: string) =>
+    fetch(`${BASE}/api/sessions/${id}/review/issues`).then((r) => json<SessionReviewIssues>(r)),
+  sessionKeypoint: (id: string, camera: string, frameIndex: number, marker: string) =>
+    fetch(
+      `${BASE}/api/sessions/${id}/keypoint/${camera}/${frameIndex}/${encodeURIComponent(marker)}`,
+    ).then((r) => json<SessionPoseKeypoint>(r)),
+  saveSessionReview: (id: string, review: SessionReviewAnnotations) =>
+    fetch(`${BASE}/api/sessions/${id}/review`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(review),
+    }).then((r) => json<SessionReviewAnnotations>(r)),
+  sessionReviewWhatIf: (id: string, exclusions: MarkerReviewAnnotation[]) =>
+    fetch(`${BASE}/api/sessions/${id}/review/what-if`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ exclusions }),
+    }).then((r) => json<ReviewWhatIfResult>(r)),
+  metricRangeStatus: () =>
+    fetch(`${BASE}/api/config/metric-ranges/status`).then((r) =>
+      json<MetricRangeCompatibility>(r),
+    ),
+  migrateMetricRanges: (action: 'accept_existing' | 'restore_defaults') =>
+    fetch(`${BASE}/api/config/metric-ranges/migrate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action }),
+    }).then((r) => json<{ status: string; action: string; backup_file: string }>(r)),
   saveConfig: (config: Record<string, unknown>) =>
     fetch(`${BASE}/api/config`, {
       method: 'PUT',

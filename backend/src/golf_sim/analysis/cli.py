@@ -29,7 +29,10 @@ from golf_sim.analysis.phases import PhaseDetectionError, SwingPhases, detect_ph
 from golf_sim.analysis.quality import assess_tracking_quality
 from golf_sim.analysis.tips import generate_tips, tips_to_dicts
 from golf_sim.config import Club, load_config, resolve_state_path
-from golf_sim.pose.reconstruction_evidence import verified_artifact_evidence
+from golf_sim.pose.reconstruction_evidence import (
+    review_camera_tolerances,
+    verified_artifact_evidence,
+)
 from golf_sim.trc import read_trc
 
 
@@ -291,6 +294,243 @@ def pick_trc(session_dir: Path) -> Path:
     raise FileNotFoundError(
         f"no .trc under {pose3d} -- run `python -m golf_sim.pose.cli full` first"
     )
+
+
+def apply_review_exclusions(seq, marker_support, camera_frame_rates, exclusions):
+    """Mask selected 3D marker samples in a copy for diagnostic what-if metrics.
+
+    A 2D observation exclusion cannot recover a replacement 3D point without
+    retriangulation. Masking the corresponding saved 3D sample is deliberately
+    conservative and leaves the source sequence and support evidence intact.
+    """
+    from golf_sim.trc import LandmarkSequence
+
+    coords = seq.coords.copy()
+    support = (
+        None
+        if marker_support is None
+        else {
+            name: np.asarray(values, dtype=bool).copy() for name, values in marker_support.items()
+        }
+    )
+    applied = []
+    for exclusion in exclusions:
+        camera = exclusion["camera"]
+        marker_name = exclusion["marker"]
+        frame_index = int(exclusion["frame_index"])
+        fps = camera_frame_rates.get(camera)
+        if fps is None or not np.isfinite(fps) or fps <= 0:
+            raise ValueError(f"no valid frame rate for {camera}")
+        if not seq.has_marker(marker_name):
+            raise ValueError(f"unknown 3D marker: {marker_name}")
+        if frame_index < 0:
+            raise ValueError("frame index must be nonnegative")
+
+        observation_time = frame_index / fps
+        if observation_time < seq.times[0] or observation_time > seq.times[-1]:
+            raise ValueError(f"{camera} frame {frame_index} is outside the saved 3D sequence")
+        trc_frame = int(np.argmin(np.abs(seq.times - observation_time)))
+        marker_index = seq.marker_names.index(marker_name)
+        coords[trc_frame, marker_index] = np.nan
+        if support is not None and marker_name in support:
+            if support[marker_name].shape != (seq.n_frames,):
+                raise ValueError(f"invalid support length for {marker_name}")
+            support[marker_name][trc_frame] = False
+        applied.append(
+            {
+                "camera": camera,
+                "frame_index": frame_index,
+                "marker": marker_name,
+                "trc_frame_index": trc_frame,
+                "trc_time_s": float(seq.times[trc_frame]),
+            }
+        )
+
+    return LandmarkSequence(seq.marker_names.copy(), seq.times.copy(), coords), support, applied
+
+
+def analyze_session_what_if(session_dir: Path, config, exclusions: list[dict]) -> dict:
+    """Recompute metrics in memory with reviewed marker observations excluded."""
+    trc_path = pick_trc(session_dir)
+    metrics_path = Path(session_dir) / "metrics.json"
+    if not metrics_path.exists():
+        raise FileNotFoundError("original metrics are unavailable for comparison")
+    original = json.loads(metrics_path.read_text())
+    saved_phases = original.get("phases")
+    if not isinstance(saved_phases, dict):
+        raise ValueError("original phase anchors are unavailable")
+
+    seq = read_trc(trc_path)
+    metadata_path = Path(session_dir) / "metadata.json"
+    metadata = json.loads(metadata_path.read_text()) if metadata_path.exists() else {}
+    camera_devices = getattr(getattr(config, "cameras", None), "devices", [])
+    camera_roles = [device.role for device in camera_devices]
+    camera_frame_rates = {
+        role: metadata.get("cameras", {}).get(role, {}).get("fps")
+        or next((device.fps for device in camera_devices if device.role == role), None)
+        for role in camera_roles
+    }
+    reference = _reference_for_session(seq, metadata, trc_path, config.analysis.golfer_handedness)
+    marker_support = _marker_observation_support(seq, session_dir, camera_roles, config.metrics)
+    try:
+        artifact = verified_artifact_evidence(trc_path)
+    except (OSError, ValueError, KeyError):
+        artifact = None
+    if artifact is not None:
+        reconstructed = {
+            name: np.asarray(values, dtype=bool)
+            for name, values in artifact.get("marker_support", {}).items()
+        }
+        if marker_support is None:
+            marker_support = reconstructed
+        else:
+            for name, values in reconstructed.items():
+                if name in marker_support and values.shape == marker_support[name].shape:
+                    marker_support[name] &= values
+
+    diagnostic_seq, diagnostic_support, applied = apply_review_exclusions(
+        seq, marker_support, camera_frame_rates, exclusions
+    )
+    phases = SwingPhases(
+        address_frame=int(saved_phases["address_frame"]),
+        top_frame=int(saved_phases["top_frame"]),
+        impact_frame=int(saved_phases["impact_frame"]),
+        status=saved_phases.get("status", "valid"),
+    )
+    report = compute_metrics(
+        diagnostic_seq,
+        config.metrics,
+        phases=phases,
+        handedness=config.analysis.golfer_handedness,
+        club=original.get("club") or metadata.get("club"),
+        reference=reference,
+        marker_support=diagnostic_support,
+    )
+    return {
+        **report.to_dict(),
+        "tips": tips_to_dicts(generate_tips(report)),
+        "diagnostic_only": True,
+        "warning": (
+            "This what-if masks selected saved 3D marker samples. It does not retriangulate, "
+            "repair missing geometry, or replace the original analysis."
+        ),
+        "exclusions": applied,
+    }
+
+
+def session_review_issues(session_dir: Path, config) -> dict:
+    """Inspect metric dependencies in memory without changing saved analysis or reviews."""
+    session_dir = Path(session_dir)
+    original = json.loads((session_dir / "metrics.json").read_text())
+    trc_path = pick_trc(session_dir)
+    if original.get("source_trc") not in (None, trc_path.name):
+        raise ValueError(
+            "saved metrics refer to a different 3D artifact; explicit reanalysis required"
+        )
+    diagnostic = analyze_session_what_if(session_dir, config, [])
+    seq = read_trc(trc_path)
+    metadata = json.loads((session_dir / "metadata.json").read_text())
+    cameras = metadata.get("cameras", {})
+    roles = sorted(set(cameras) | {path.stem for path in session_dir.glob("camera_*.mp4")})
+    roles = [role for role in roles if role in {"camera_1", "camera_2"}]
+    issues = []
+    blockers = []
+    for metric in diagnostic["metrics"]:
+        if metric["status"] == "valid":
+            continue
+        spans = metric.get("review_issues", [])
+        for span in spans:
+            times = seq.times[span["start_frame"] : span["end_frame"] + 1]
+            for role in (roles if span["marker"] else []) or [None]:
+                fps = cameras.get(role, {}).get("fps")
+                mapped = (
+                    isinstance(fps, (int, float))
+                    and np.isfinite(fps)
+                    and fps > 0
+                    and np.isfinite(times).all()
+                    and (times >= 0).all()
+                    and (np.diff(times) > 0).all()
+                )
+                frames = (
+                    sorted({round(float(timestamp) * fps) for timestamp in times}) if mapped else []
+                )
+                issues.append(
+                    {
+                        "metric": metric["name"],
+                        "marker": span["marker"],
+                        "camera": role,
+                        "frame_indices": frames,
+                        "fps": fps if mapped else None,
+                        "start_time_s": span["start_time_s"],
+                        "end_time_s": span["end_time_s"],
+                        "reason": span["reason"],
+                        "camera_attribution": "not_isolated",
+                        "mapping_reason": (
+                            None if mapped else "Saved camera frame mapping unavailable"
+                        ),
+                    }
+                )
+        reasons = [
+            reason
+            for reason in metric["reasons"]
+            if not spans
+            or not reason.startswith(
+                (
+                    "unverified_marker:",
+                    "invalid_support:",
+                    "insufficient_coverage:",
+                    "unsupported_geometry:",
+                )
+            )
+        ]
+        if reasons:
+            blockers.append({"metric": metric["name"], "reasons": reasons})
+    try:
+        tolerances = review_camera_tolerances(trc_path, config, issues)
+    except (OSError, ValueError, KeyError, TypeError, cv2.error) as exc:
+        tolerances = {"available": False, "reason": str(exc), "failures": {}}
+    tolerance_issues = []
+    for issue in issues:
+        issue["measurements"] = {}
+        group = None
+        for frame in issue["frame_indices"]:
+            failure = tolerances["failures"].get(f"{issue['camera']}/{issue['marker']}/{frame}")
+            if failure is None:
+                group = None
+                continue
+            issue["measurements"][str(frame)] = failure
+            if (
+                group is None
+                or group["frame_indices"][-1] != frame - 1
+                or group["reason"] != failure["reason"]
+            ):
+                group = {
+                    **issue,
+                    "frame_indices": [],
+                    "measurements": {},
+                    "reason": failure["reason"],
+                    "camera_attribution": "camera_check_failed",
+                    "start_time_s": frame / issue["fps"],
+                }
+                tolerance_issues.append(group)
+            group["frame_indices"].append(frame)
+            group["measurements"][str(frame)] = failure
+            group["end_time_s"] = frame / issue["fps"]
+    return {
+        "diagnostic_only": True,
+        "warning": (
+            "Read-only diagnostic using saved phase anchors and current settings, "
+            "not a replacement for saved results. A failed reprojection check may come from "
+            "3D geometry or calibration even when the visible marker is correct. "
+            "Frame links use each clip's saved frame rate, "
+            "not verified cross-camera synchronization."
+        ),
+        "metrics": diagnostic["metrics"],
+        "issues": issues,
+        "tolerance_issues": tolerance_issues,
+        "tolerance_check": {"available": tolerances["available"], "reason": tolerances["reason"]},
+        "blockers": blockers,
+    }
 
 
 def analyze_session(session_dir: Path, config) -> Path:

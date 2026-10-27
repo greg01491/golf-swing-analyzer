@@ -1,5 +1,17 @@
 export const MIN_SUPPORTED_PLAYBACK_RATE = 0.0625
 
+export function commonPlaybackDuration(durations: number[]): number {
+  return durations.length > 0 && durations.every((value) => Number.isFinite(value) && value > 0)
+    ? Math.min(...durations)
+    : 0
+}
+
+export function clampSeekTime(time: number, duration: number, fps: number): number {
+  if (!Number.isFinite(time) || !Number.isFinite(duration) || duration <= 0) return 0
+  const frameRate = Number.isFinite(fps) && fps > 0 ? fps : 30
+  return Math.max(0, Math.min(time, Math.max(0, Math.ceil(duration * frameRate) - 1) / frameRate))
+}
+
 export function clampPlaybackPercent(value: number): number {
   if (!Number.isFinite(value)) return 100
   const bounded = Math.max(0, Math.min(100, value))
