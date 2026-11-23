@@ -9,6 +9,13 @@ export interface CameraView {
   y: number
 }
 
+export interface Rect {
+  left: number
+  top: number
+  width: number
+  height: number
+}
+
 export const DEFAULT_CAMERA_VIEW: CameraView = { zoom: 1, x: 0, y: 0 }
 
 export function containImage(image: Size, viewport: Size): Size {
@@ -20,6 +27,39 @@ export function containImage(image: Size, viewport: Size): Size {
     return { width: 0, height: 0 }
   const scale = Math.min(viewport.width / image.width, viewport.height / image.height)
   return { width: image.width * scale, height: image.height * scale }
+}
+
+export function containedImageRect(
+  image: Size,
+  imageElement: Rect,
+  container: Rect,
+): Rect | null {
+  if (
+    ![
+      imageElement.left,
+      imageElement.top,
+      imageElement.width,
+      imageElement.height,
+      container.left,
+      container.top,
+      container.width,
+      container.height,
+    ].every(Number.isFinite) ||
+    imageElement.width <= 0 ||
+    imageElement.height <= 0 ||
+    container.width <= 0 ||
+    container.height <= 0
+  ) {
+    return null
+  }
+  const fitted = containImage(image, { width: imageElement.width, height: imageElement.height })
+  if (!fitted.width || !fitted.height) return null
+  return {
+    left: imageElement.left - container.left + (imageElement.width - fitted.width) / 2,
+    top: imageElement.top - container.top + (imageElement.height - fitted.height) / 2,
+    width: fitted.width,
+    height: fitted.height,
+  }
 }
 
 // Pan is stored as a fraction of the viewport, so resizing preserves composition.

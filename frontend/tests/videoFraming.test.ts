@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   boundCameraView,
+  containedImageRect,
   containImage,
   DEFAULT_CAMERA_VIEW,
   imagePointFromClient,
@@ -24,6 +25,24 @@ test('portrait and landscape images fit without cropping or stretching', () => {
     width: 0,
     height: 0,
   })
+})
+
+test('portrait overlay geometry excludes Pro-mode letterboxing', () => {
+  const image = { width: 720, height: 1280 }
+  const proFrame = { left: 40, top: 20, width: 600, height: 400 }
+  const proVideo = { left: 40, top: 20, width: 600, height: 400 }
+  const proImageRect = containedImageRect(image, proVideo, proFrame)
+  assert.deepEqual(proImageRect, { left: 187.5, top: 0, width: 225, height: 400 })
+
+  const normalFrame = { left: 227.5, top: 20, width: 225, height: 400 }
+  const normalVideo = { left: 227.5, top: 20, width: 225, height: 400 }
+  assert.deepEqual(containedImageRect(image, normalVideo, normalFrame), {
+    left: 0,
+    top: 0,
+    width: 225,
+    height: 400,
+  })
+  assert.equal(containedImageRect(image, proVideo, { ...proFrame, width: 0 }), null)
 })
 
 test('pan remains finite and bounded while allowing repositioning at default zoom', () => {
