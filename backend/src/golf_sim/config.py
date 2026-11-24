@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field, model_validator
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_CONFIG_PATH = REPO_ROOT / "config" / "config.yaml"
+CURRENT_METRIC_RANGE_DEFINITION_VERSION = 2
 
 
 def user_state_root() -> Path:
@@ -22,6 +23,15 @@ def user_state_root() -> Path:
     if base:
         return Path(base) / "golf-swing-analyzer"
     return Path.home() / ".local" / "share" / "golf-swing-analyzer"
+
+
+def shipped_config_path() -> Path:
+    """Locate bundled defaults in frozen builds, with the source file as fallback."""
+    if getattr(sys, "frozen", False):
+        packaged_default = Path(sys.executable).resolve().parent.parent / "defaults" / "config.yaml"
+        if packaged_default.is_file():
+            return packaged_default
+    return DEFAULT_CONFIG_PATH
 
 
 def resolve_state_path(value: str | Path) -> Path:
@@ -77,10 +87,28 @@ class CamerasConfig(BaseModel):
     devices: list[CameraDeviceConfig]
 
 
+class CrownTrackingDiagnosticConfig(BaseModel):
+    min_confidence: float = Field(default=0.3, ge=0, le=1)
+    feature_radius_px: int = Field(default=24, ge=1)
+    max_features: int = Field(default=60, ge=6)
+    feature_quality: float = Field(default=0.01, gt=0, lt=1)
+    min_feature_distance_px: float = Field(default=3.0, gt=0)
+    min_features: int = Field(default=6, ge=3)
+    lk_window_px: int = Field(default=21, ge=3)
+    lk_max_level: int = Field(default=3, ge=0)
+    max_forward_backward_error_px: float = Field(default=1.0, gt=0)
+    ransac_reprojection_px: float = Field(default=1.5, gt=0)
+    min_inlier_fraction: float = Field(default=0.6, gt=0, le=1)
+    max_detector_disagreement_px: float = Field(default=12.0, gt=0)
+
+
 class PoseConfig(BaseModel):
     pose_model: str
     mode: str
     save_debug_video: bool
+    crown_tracking_diagnostic: CrownTrackingDiagnosticConfig = Field(
+        default_factory=CrownTrackingDiagnosticConfig
+    )
     parallel_workers_pose: Literal[1, 2] = 1
     parallel_workers_pose: Literal[1, 2] = 1
 

@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Crown Point Review</title>
+  <style>
+    :root { color-scheme: dark; --bg:#11161b; --surface:#1b232b; --line:#35424a; --text:#e2e8eb; --muted:#9ba8af; --accent:#39cf87; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:var(--text); font:14px Bahnschrift,"Segoe UI",sans-serif; letter-spacing:0; }
+    main { max-width:1360px; margin:auto; padding:18px; }
+    header, .toolbar, .actions { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+    header { justify-content:space-between; border-bottom:1px solid var(--line); padding-bottom:12px; }
+    h1 { font-size:20px; margin:0; }
+    label { display:flex; gap:6px; align-items:center; color:var(--muted); }
+    button,input,select { font:inherit; color:var(--text); background:var(--surface); border:1px solid var(--line); border-radius:4px; padding:8px; }
+    button { cursor:pointer; }
+    button:disabled { cursor:default; opacity:.45; }
+    button:focus-visible,input:focus-visible,select:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+    #case { max-width:100%; min-width:240px; }
+    .toolbar { padding:12px 0; }
+    .icon { width:36px; height:36px; padding:0; }
+    input[type=number] { width:90px; }
+    .viewport { height:64vh; min-height:260px; overflow:auto; background:#080b0e; border-block:1px solid var(--line); }
+    .surface { position:relative; margin:auto; }
+    #frame-image { display:block; width:100%; height:auto; cursor:crosshair; user-select:none; }
+    #point { position:absolute; width:18px; height:18px; border:2px solid var(--accent); border-radius:50%; transform:translate(-50%,-50%); pointer-events:none; }
+    #point::before,#point::after { content:""; position:absolute; background:var(--accent); }
+    #point::before { height:1px; width:26px; top:6px; left:-6px; }
+    #point::after { width:1px; height:26px; left:6px; top:-6px; }
+    .check-mode #point { border-color:#f0b85b; }
+    .check-mode #point::before,.check-mode #point::after { background:#f0b85b; }
+    #tracked { position:absolute; width:16px; height:16px; border:2px solid #39cf87; transform:translate(-50%,-50%); pointer-events:none; }
+    .actions { padding:14px 0; }
+    #save { border-color:var(--accent); color:var(--accent); }
+    #status { min-height:22px; margin:8px 0; color:var(--muted); overflow-wrap:anywhere; }
+    #status.error { color:#ff9898; }
+    .muted { color:var(--muted); font-size:12px; }
+    @media(max-width:600px) { main { padding:12px; } header { align-items:flex-start; } #case { min-width:0; width:100%; } .viewport { height:58vh; } .confirm { flex-basis:100%; } }
+  </style>
+</head>
+<body>
+<main>
+  <header><h1>Crown Point Review</h1><span id="progress" class="muted"></span><a href="/?mode=playback" style="color:var(--accent)">Playback review</a><span class="muted">Diagnostic annotations only</span></header>
+  <div class="toolbar">
+    <label>View <select id="case" aria-label="Diagnostic view"></select></label>
+    <button id="prev" class="icon" title="Previous native frame" aria-label="Previous native frame">&lt;</button>
+    <label>Frame <input id="frame" type="number" min="0" step="1" value="0"></label>
+    <button id="next" class="icon" title="Next native frame" aria-label="Next native frame">&gt;</button>
+    <span id="time" class="muted"></span>
+    <button id="zoom-out" class="icon" title="Zoom out" aria-label="Zoom out">-</button>
+    <button id="zoom-in" class="icon" title="Zoom in" aria-label="Zoom in">+</button>
+    <span id="zoom" class="muted">1x</span>
+  </div>
+  <div class="viewport" id="viewport"><div class="surface" id="surface"><img id="frame-image" alt="Native diagnostic frame" draggable="false"><span id="point" hidden></span><span id="tracked" hidden></span></div></div>
+  <div class="actions">
+    <label>X <input id="x" type="number" min="0" step="0.1" aria-label="Native X coordinate"></label>
+    <label>Y <input id="y" type="number" min="0" step="0.1" aria-label="Native Y coordinate"></label>
+    <button id="reset">Reset point</button>
+    <label class="confirm"><input id="visible" type="checkbox">Crown is clearly visible at this point</label>
+    <button id="save" disabled>Save crown point</button>
+    <button id="skip">Skip view</button>
+  </div>
+  <p id="status" role="status">Loading diagnostic views...</p>
+</main>
+<script>
+const el = (id) => document.getElementById(id)
+const checkMode = new URLSearchParams(location.search).get('mode') === 'check'
+let cases = [], annotations = [], active = null, frame = 0, point = null, prediction = null, zoom = 1, loaded = false, saving = false, generation = 0
+const viewKey = (item) => checkMode ? `${item.case_id}@${item.frame_index}` : item.case_id
+const savedPoint = () => annotations.find((item) => item.case_id === active?.case_id && item.frame_index === frame)
+const locked = () => checkMode && Boolean(savedPoint())
+if (checkMode) {
+  document.body.classList.add('check-mode'); document.title = 'Crown Accuracy Check'
+  document.querySelector('h1').textContent = 'Crown Accuracy Check'
+  el('save').textContent = 'Save independent crown point'; el('skip').textContent = 'Next check'
+}
+function progress() { el('progress').textContent = checkMode ? `${annotations.length}/${cases.length} checks saved` : `${new Set(annotations.map((item) => item.case_id)).size}/${cases.length} views seeded` }
+function status(message, error = false) { el('status').textContent = message; el('status').classList.toggle('error', error) }
+function controls() {
+  const valid = loaded && point && point.x >= 0 && point.y >= 0 && point.x < active.native_width && point.y < active.native_height
+  el('save').disabled = !valid || !el('visible').checked || saving || locked()
+  el('point').hidden = !valid
+  if (valid) { el('point').style.left = `${point.x / active.native_width * 100}%`; el('point').style.top = `${point.y / active.native_height * 100}%` }
+  el('tracked').hidden = !loaded || !prediction
+  if (loaded && prediction) { el('tracked').style.left = `${prediction[0] / active.native_width * 100}%`; el('tracked').style.top = `${prediction[1] / active.native_height * 100}%` }
+  el('prev').disabled = checkMode || saving || frame === 0
+  el('next').disabled = checkMode || saving || !active || frame >= active.frame_count - 1
+  el('case').disabled = saving; el('frame').disabled = checkMode || saving; el('skip').disabled = saving
+  for (const id of ['x','y','visible','reset']) el(id).disabled = saving || locked()
+}
+function size() {
+  if (!active) return
+  el('surface').style.width = `${Math.min(el('viewport').clientWidth, active.native_width) * zoom}px`
+  el('zoom').textContent = `${zoom}x`
+}
+function reset() { point = null; prediction = null; el('x').value = ''; el('y').value = ''; el('visible').checked = false; controls() }
+function reveal(data) {
+  prediction = data.candidate_xy; controls()
+  status(data.distance_px === null ? `Saved independent judgment. Track unavailable: ${data.tracking_status}.` : `Saved independent judgment. Tracked-point distance: ${data.distance_px.toFixed(2)} px. Orange: your point; green: tracked point. Judgment locked after reveal.`)
+}
+async function show(caseId, nativeFrame = 0) {
+  active = cases.find((item) => viewKey(item) === caseId)
+  frame = checkMode ? active.frame_index : Math.max(0, Math.min(active.frame_count - 1, Math.trunc(nativeFrame)))
+  if (!Number.isFinite(frame)) frame = 0
+  loaded = false; reset(); el('case').value = caseId; el('frame').value = frame; el('frame').max = active.frame_count - 1
+  el('time').textContent = `${(frame / active.fps).toFixed(3)}s / ${active.native_width} x ${active.native_height}`
+  el('x').max = active.native_width - 0.1; el('y').max = active.native_height - 0.1
+  const request = ++generation, image = el('frame-image')
+  image.onload = async () => {
+    if (request !== generation) return
+    loaded = true; size()
+    const saved = annotations.find((item) => item.case_id === active.case_id && item.frame_index === frame)
+    if (saved) { point = {x:saved.x,y:saved.y}; el('x').value = saved.x; el('y').value = saved.y; el('visible').checked = true }
+    controls(); status(saved ? 'Saved operator point for this native frame.' : checkMode ? 'Prediction hidden. No independent judgment saved.' : 'No operator point saved for this native frame.')
+    if (checkMode && saved) {
+      try {
+        const response = await fetch(`/api/checks/result/${encodeURIComponent(active.case_id)}/${frame}`)
+        if (!response.ok) throw new Error(await response.text())
+        const data = await response.json(); if (request === generation) reveal(data)
+      } catch (error) { if (request === generation) status(error.message, true) }
+    }
+  }
+  image.onerror = () => { if (request === generation) { loaded = false; controls(); status('Frame could not be loaded.', true) } }
+  image.alt = `${active.label}, native frame ${frame}`
+  image.src = `/api/frame/${encodeURIComponent(active.case_id)}/${frame}`
+}
+el('frame-image').addEventListener('click', (event) => {
+  if (!loaded || saving || locked()) return
+  const rect = event.currentTarget.getBoundingClientRect()
+  point = {x:(event.clientX - rect.left) / rect.width * active.native_width, y:(event.clientY - rect.top) / rect.height * active.native_height}
+  el('x').value = point.x.toFixed(2); el('y').value = point.y.toFixed(2); el('visible').checked = false; controls(); status('Point selected; visibility not yet confirmed.')
+})
+for (const id of ['x','y']) el(id).addEventListener('input', () => {
+  point = el('x').value !== '' && el('y').value !== '' ? {x:Number(el('x').value),y:Number(el('y').value)} : null
+  el('visible').checked = false; controls()
+})
+el('visible').addEventListener('change', controls)
+el('reset').addEventListener('click', () => { reset(); status('Point cleared; nothing saved.') })
+el('case').addEventListener('change', () => show(el('case').value))
+el('frame').addEventListener('change', () => show(viewKey(active), Number(el('frame').value)))
+el('prev').addEventListener('click', () => show(viewKey(active), frame - 1))
+el('next').addEventListener('click', () => show(viewKey(active), frame + 1))
+el('zoom-in').addEventListener('click', () => { zoom = Math.min(4, zoom + 0.5); size() })
+el('zoom-out').addEventListener('click', () => { zoom = Math.max(1, zoom - 0.5); size() })
+function advance() { const index = cases.findIndex((item) => viewKey(item) === viewKey(active)); show(viewKey(cases[(index + 1) % cases.length])) }
+el('skip').addEventListener('click', advance)
+el('save').addEventListener('click', async () => {
+  if (el('save').disabled) return
+  const annotation = {case_id:active.case_id,camera:active.camera,video_sha256:active.video_sha256,frame_index:frame,native_width:active.native_width,native_height:active.native_height,x:point.x,y:point.y,confirmed_visible:true,origin:'operator_click',...(checkMode ? {purpose:'validation_only',comparison_sha256:active.comparison_sha256} : {})}
+  saving = true; controls()
+  try {
+    const response = await fetch(checkMode ? '/api/checks' : '/api/seeds', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(annotation)})
+    if (!response.ok) throw new Error(await response.text())
+    annotations = annotations.filter((item) => item.case_id !== annotation.case_id || item.frame_index !== annotation.frame_index)
+    annotations.push(annotation); progress()
+    saving = false; if (checkMode) reveal(await response.json()); else advance()
+  } catch (error) { status(`Not saved: ${error.message}`, true) }
+  finally { saving = false; controls() }
+})
+addEventListener('resize', size)
+fetch(checkMode ? '/api/checks' : '/api/cases').then(async (response) => { if (!response.ok) throw new Error(await response.text()); return response.json() }).then((data) => {
+  cases = data.cases; annotations = data.annotations
+  for (const item of cases) { const option = document.createElement('option'); option.value = viewKey(item); option.textContent = item.label; el('case').append(option) }
+  if (!cases.length) throw new Error('No diagnostic views are available')
+  progress()
+  show(viewKey(cases[0]))
+}).catch((error) => status(error.message, true))
+</script>
+</body>
+</html>

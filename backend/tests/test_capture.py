@@ -145,6 +145,11 @@ def test_manual_capture_produces_two_synced_clips(tmp_path):
     metadata = json.loads((session_dir / "metadata.json").read_text())
     cam1_frames = metadata["cameras"]["camera_1"]["frame_count"]
     cam2_frames = metadata["cameras"]["camera_2"]["frame_count"]
+    for camera_metadata in metadata["cameras"].values():
+        receipts = camera_metadata["source_receipt_offsets_s"]
+        assert len(receipts) == camera_metadata["frame_count"]
+        assert receipts == sorted(receipts)
+        assert all(0 <= receipt <= config.audio_trigger.capture_duration_s for receipt in receipts)
     expected = config.audio_trigger.capture_duration_s * 30
     assert cam1_frames == cam2_frames  # both cameras produced the same window length
     assert expected * 0.7 <= cam1_frames <= expected * 1.3

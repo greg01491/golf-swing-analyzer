@@ -9,9 +9,12 @@ dropping below address height, then a short follow-through rise.
 import numpy as np
 import pytest
 
+from golf_sim.analysis.cli import apply_review_exclusions, session_review_issues
 from golf_sim.analysis.frame_of_reference import AnalysisReference
 from golf_sim.analysis.metrics import compute_metrics
+from golf_sim.analysis.p_positions import detect_p_positions
 from golf_sim.analysis.phases import SwingPhases, detect_phases
+from golf_sim.analysis.tips import generate_tips
 from golf_sim.config import MetricsConfig, ReferenceRange, load_config
 from golf_sim.trc import LandmarkSequence
 
@@ -136,6 +139,120 @@ def _known_evidence(seq):
         ),
         "marker_support": {name: np.ones(seq.n_frames, dtype=bool) for name in seq.marker_names},
     }
+
+
+def test_review_issues_use_only_the_metrics_required_frames():
+    seq = synthetic_swing()
+    evidence = _known_evidence(seq)
+    evidence["marker_support"]["Head"][40:43] = False
+    evidence["marker_support"]["Head"][120:] = False
+    phases = SwingPhases(address_frame=29, top_frame=89, impact_frame=109)
+
+    payload = compute_metrics(seq, _config(), phases=phases, **evidence).to_dict()
+    metrics = {metric["name"]: metric for metric in payload["metrics"]}
+
+    assert metrics["head_movement_cm"]["review_issues"] == [
+        {
+            "marker": "Head",
+            "reason": "Observation or reconstruction support rejected",
+            "start_frame": 40,
+            "end_frame": 42,
+            "start_time_s": 40 / FPS,
+            "end_time_s": 42 / FPS,
+        }
+    ]
+    assert metrics["hip_turn_deg"]["review_issues"] == []
+    assert metrics["lead_arm_deg"]["review_issues"] == []
+
+
+def test_review_issues_do_not_invent_links_for_invalid_timestamps():
+    import json
+
+    seq = synthetic_swing()
+    seq.times[40] = seq.times[39]
+    evidence = _known_evidence(seq)
+    evidence["marker_support"]["Head"][:] = False
+
+    payload = compute_metrics(seq, _config(), phases=SwingPhases(29, 89, 109), **evidence).to_dict()
+
+    assert all(not metric["review_issues"] for metric in payload["metrics"])
+    assert all(
+        any(reason.startswith("invalid_timestamps:") for reason in metric["reasons"])
+        for metric in payload["metrics"]
+    )
+    json.dumps(payload, allow_nan=False)
+
+
+def test_review_issue_diagnostic_maps_each_camera_without_writing(tmp_path, monkeypatch):
+    import json
+
+    import golf_sim.analysis.cli as analysis
+
+    seq = synthetic_swing()
+    seq.times += 1
+    evidence = _known_evidence(seq)
+    evidence["marker_support"]["Head"][:] = False
+    trc_path = tmp_path / "saved.trc"
+    trc_path.write_text("unchanged 3D")
+    (tmp_path / "metrics.json").write_text(
+        json.dumps(
+            {
+                "source_trc": trc_path.name,
+                "phases": {"address_frame": 29, "top_frame": 89, "impact_frame": 109},
+            }
+        )
+    )
+    (tmp_path / "metadata.json").write_text(
+        json.dumps({"cameras": {"camera_1": {"fps": 120}, "camera_2": {"fps": 60}}})
+    )
+    (tmp_path / "review_annotations.json").write_text('{"version": 1}')
+    before = {path.name: path.read_bytes() for path in tmp_path.iterdir()}
+    monkeypatch.setattr(analysis, "pick_trc", lambda directory: trc_path)
+    monkeypatch.setattr(analysis, "read_trc", lambda path: seq)
+    monkeypatch.setattr(analysis, "_reference_for_session", lambda *args: evidence["reference"])
+    monkeypatch.setattr(
+        analysis, "_marker_observation_support", lambda *args: evidence["marker_support"]
+    )
+    monkeypatch.setattr(analysis, "verified_artifact_evidence", lambda path: None)
+
+    result = session_review_issues(tmp_path, load_config())
+
+    head_rows = [row for row in result["issues"] if row["marker"] == "Head"]
+    assert {row["camera"] for row in head_rows} == {"camera_1", "camera_2"}
+    first = {row["camera"]: row["frame_indices"][0] for row in head_rows}
+    assert first == {"camera_1": 178, "camera_2": 89}
+    assert all(row["camera_attribution"] == "not_isolated" for row in head_rows)
+    assert all(row["metric"] == "head_movement_cm" for row in head_rows)
+    assert {path.name: path.read_bytes() for path in tmp_path.iterdir()} == before
+
+    failure = {
+        "reason": "Reprojection error exceeds tolerance",
+        "value": 28,
+        "threshold": 15,
+        "unit": "px",
+    }
+    monkeypatch.setattr(
+        analysis,
+        "review_camera_tolerances",
+        lambda *args: {
+            "available": True,
+            "reason": None,
+            "failures": {"camera_1/Head/178": failure},
+        },
+    )
+    filtered = session_review_issues(tmp_path, load_config())
+    assert len(filtered["tolerance_issues"]) == 1
+    assert filtered["tolerance_issues"][0]["camera"] == "camera_1"
+    assert filtered["tolerance_issues"][0]["frame_indices"] == [178]
+    assert filtered["tolerance_issues"][0]["measurements"] == {"178": failure}
+    assert len(filtered["issues"]) == len(result["issues"])
+    assert {path.name: path.read_bytes() for path in tmp_path.iterdir()} == before
+
+    (tmp_path / "metadata.json").write_text(json.dumps({"cameras": {"camera_1": {}}}))
+    unmapped = session_review_issues(tmp_path, load_config())
+    assert all(not row["frame_indices"] for row in unmapped["issues"])
+    assert all(row["mapping_reason"] for row in unmapped["issues"])
+    assert unmapped["tolerance_issues"] == []
 
 
 def test_phase_detection_finds_address_top_impact():
@@ -480,17 +597,72 @@ def test_unsupported_turn_sample_does_not_supply_the_peak():
     assert metric.value < 80
 
 
-def test_legacy_custom_targets_are_not_silently_applied():
+def test_p_positions_remain_available_when_unrelated_metric_evidence_fails():
+    seq = synthetic_swing()
+    phases = SwingPhases(29, 89, 109)
+    positions = detect_p_positions(seq, phases)
+    evidence = _known_evidence(seq)
+    evidence["marker_support"]["LShoulder"][phases.address_frame : phases.top_frame + 1] = False
+
+    report = compute_metrics(seq, _config(), phases=phases, **evidence)
+    metrics = {metric.name: metric for metric in report.metrics}
+
+    assert len(positions) == 10
+    assert all(position.available for position in positions)
+    assert metrics["shoulder_turn_deg"].status == "unavailable"
+    assert any("insufficient_coverage" in reason for reason in metrics["shoulder_turn_deg"].reasons)
+    assert np.isfinite(metrics["backswing_time_s"].value)
+    assert metrics["backswing_time_s"].status == "valid"
+
+
+@pytest.mark.parametrize("range_version", [None, 1, 99])
+def test_incompatible_range_version_preserves_estimate_without_verdict(range_version):
     seq = synthetic_swing()
     config = _config()
-    config.range_definition_version = None
+    config.range_definition_version = range_version
     report = compute_metrics(seq, config, **_known_evidence(seq))
     metric = next(metric for metric in report.metrics if metric.name == "shoulder_turn_deg")
 
-    assert metric.status == "valid"
+    assert np.isfinite(metric.value)
+    assert metric.status == "estimated"
     assert metric.range_min is None
     assert metric.in_range is None
     assert any("incompatible_target" in reason for reason in metric.reasons)
+    assert all(tip.metric != "shoulder_turn_deg" for tip in generate_tips(report))
+    serialized = next(
+        item for item in report.to_dict()["metrics"] if item["name"] == "shoulder_turn_deg"
+    )
+    assert serialized["value"] == pytest.approx(metric.value, abs=0.01)
+    assert serialized["status"] == "estimated"
+    assert serialized["in_range"] is None
+
+
+def test_review_exclusion_maps_camera_frame_and_masks_only_a_copy():
+    seq = synthetic_swing()
+    support = {name: np.ones(seq.n_frames, dtype=bool) for name in seq.marker_names}
+    original_head = seq.marker("Head").copy()
+
+    diagnostic, diagnostic_support, applied = apply_review_exclusions(
+        seq,
+        support,
+        {"camera_1": 60.0, "camera_2": 120.0},
+        [{"camera": "camera_2", "frame_index": 120, "marker": "RHip"}],
+    )
+
+    assert applied == [
+        {
+            "camera": "camera_2",
+            "frame_index": 120,
+            "marker": "RHip",
+            "trc_frame_index": 60,
+            "trc_time_s": pytest.approx(1.0),
+        }
+    ]
+    assert np.isnan(diagnostic.marker("RHip")[60]).all()
+    assert diagnostic_support["RHip"][60] is np.False_
+    assert np.isfinite(seq.marker("RHip")[60]).all()
+    assert support["RHip"].all()
+    assert np.array_equal(seq.marker("Head"), original_head)
 
 
 @pytest.mark.parametrize(

@@ -16,6 +16,7 @@ from golf_sim.pose.reconstruction_evidence import (
     MARKER_INDICES,
     WORLD_TO_TRC,
     load_ground_evidence,
+    review_camera_tolerances,
     snapshot_bundle,
     verified_artifact_evidence,
     write_reconstruction_evidence,
@@ -125,6 +126,42 @@ def test_measured_ground_reaches_exact_filtered_artifact_with_supported_observat
     assert evidence["camera_coverage"]["camera_1"]["LShoulder"] == 1
 
 
+def test_review_tolerance_only_flags_the_camera_and_frames_exceeding_the_gate(measured_session):
+    directory, config, trc, _ = measured_session
+    path = directory / "pose2sim" / "pose-associated" / "camera_1_json" / "camera_1_000040.json"
+    payload = json.loads(path.read_text())
+    limit = config.calibration.validation.max_tail_error_px
+    payload["people"][0]["pose_keypoints_2d"][MARKER_INDICES["RHip"] * 3] += limit + 10
+    atomic_json(path, payload)
+    low_confidence = path.with_name("camera_1_000041.json")
+    payload = json.loads(low_confidence.read_text())
+    payload["people"][0]["pose_keypoints_2d"][MARKER_INDICES["RHip"] * 3 + 2] = 0.1
+    atomic_json(low_confidence, payload)
+    before = {file: file.read_bytes() for file in directory.rglob("*") if file.is_file()}
+    issues = [
+        {"marker": "RHip", "camera": role, "frame_indices": [40, 41, 42], "fps": 60}
+        for role in ("camera_1", "camera_2")
+    ]
+
+    result = review_camera_tolerances(trc, config, issues)
+
+    assert result["available"] is True
+    assert set(result["failures"]) == {"camera_1/RHip/40", "camera_1/RHip/41"}
+    failure = result["failures"]["camera_1/RHip/40"]
+    assert failure["value"] == pytest.approx(limit + 10, abs=0.1)
+    assert failure["threshold"] == limit
+    assert failure["unit"] == "px"
+    assert result["failures"]["camera_1/RHip/41"]["value"] == 0.1
+    assert result["failures"]["camera_1/RHip/41"]["threshold"] == 0.3
+    assert {file: file.read_bytes() for file in before} == before
+
+
+def test_review_tolerance_without_bound_evidence_does_not_invent_failures(tmp_path):
+    result = review_camera_tolerances(tmp_path / "unknown.trc", load_config(), [])
+    assert result["available"] is False
+    assert result["failures"] == {}
+
+
 def test_tampered_reference_axes_cannot_authorize_measurement(measured_session):
     _, _, trc, _ = measured_session
     path = trc.with_suffix(".evidence.json")
@@ -168,6 +205,84 @@ def test_held_filled_coordinates_do_not_become_observed_measurements(measured_se
     assert evidence["observation_provenance"] == "pre_fill_triangulation"
     assert evidence["session_validation"]["status"] == "failed"
     assert evidence["session_validation"]["regions"]["shoulders"] < 0.8
+
+
+def test_zero_filled_head_is_rejected_even_when_prefill_support_claims_observation(
+    measured_session,
+):
+    from golf_sim.analysis.frame_of_reference import AnalysisReference
+    from golf_sim.analysis.metrics import compute_metrics
+    from golf_sim.analysis.phases import SwingPhases
+    from golf_sim.trc import read_trc
+
+    directory, config, trc, snapshot = measured_session
+    sequence = read_trc(trc)
+    sequence.coords[:, sequence.marker_names.index("Head")] = 0.0
+    _write_trc(sequence, trc)
+    write_reconstruction_evidence(
+        directory,
+        config,
+        snapshot,
+        [trc],
+        [True] * (sequence.n_frames * len(sequence.marker_names)),
+    )
+
+    evidence = verified_artifact_evidence(trc)
+    reference = evidence["analysis_reference"]
+    analysis = compute_metrics(
+        sequence,
+        config.metrics,
+        phases=SwingPhases(29, 89, 109),
+        reference=AnalysisReference(
+            up=np.asarray(reference["up"]),
+            target=np.asarray(reference["target"]),
+            ball=np.asarray(reference["ball"]),
+            source=reference["source"],
+        ),
+        marker_support=evidence["marker_support"],
+    )
+    head_movement = next(metric for metric in analysis.metrics if metric.name == "head_movement_cm")
+
+    assert not any(evidence["marker_support"]["Head"])
+    assert evidence["session_validation"]["regions"]["head"] == 0
+    assert head_movement.status == "unavailable"
+    assert any("insufficient_coverage" in reason for reason in head_movement.reasons)
+
+
+def test_what_if_metrics_mask_selected_observation_without_rewriting_session(
+    measured_session,
+):
+    from golf_sim.analysis.cli import analyze_session_what_if
+
+    directory, config, trc, _ = measured_session
+    metadata_path = directory / "metadata.json"
+    metadata_before = metadata_path.read_bytes()
+    trc_before = trc.read_bytes()
+    metrics_path = directory / "metrics.json"
+    original_metrics = {"phases": {"address_frame": 29, "top_frame": 89, "impact_frame": 109}}
+    metrics_path.write_text(json.dumps(original_metrics))
+    metrics_before = metrics_path.read_bytes()
+
+    result = analyze_session_what_if(
+        directory,
+        config,
+        [{"camera": "camera_2", "frame_index": 120, "marker": "RHip"}],
+    )
+
+    assert result["diagnostic_only"] is True
+    assert result["exclusions"] == [
+        {
+            "camera": "camera_2",
+            "frame_index": 120,
+            "marker": "RHip",
+            "trc_frame_index": 60,
+            "trc_time_s": pytest.approx(1.0),
+        }
+    ]
+    assert result["metrics"]
+    assert metrics_path.read_bytes() == metrics_before
+    assert trc.read_bytes() == trc_before
+    assert metadata_path.read_bytes() == metadata_before
 
 
 def test_explicit_reconstruction_archives_existing_geometry_and_records_selection(measured_session):

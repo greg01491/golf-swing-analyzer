@@ -37,6 +37,8 @@ dev = [
     # verifies our Calib.toml writer against the same TOML parser Pose2Sim
     # uses to read it -- otherwise only a transitive dep of the pose extra
     "rtoml>=0.9",
+    # Embedded-font PDF generation for physical calibration board artwork.
+    "reportlab>=4.2",
 ]
 # 2D pose + camera calibration + 3D triangulation (Phase 3/4). Not needed until
 # then — kept as its own extra so Phase 0-2 setup doesn't pull in its ML stack.

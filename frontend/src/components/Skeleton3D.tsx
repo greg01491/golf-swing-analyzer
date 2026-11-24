@@ -60,7 +60,13 @@ function upAxis(lm: Landmarks): { axis: number; sign: number } {
   return { axis, sign: best >= 0 ? 1 : -1 }
 }
 
-export default function Skeleton3D({ landmarks, time, idealFrame, width = 420, height = 420 }: Props) {
+export default function Skeleton3D({
+  landmarks,
+  time,
+  idealFrame,
+  width = 420,
+  height = 420,
+}: Props) {
   const mountRef = useRef<HTMLDivElement>(null)
   const timeRef = useRef(time)
   timeRef.current = time
@@ -415,6 +421,7 @@ export default function Skeleton3D({ landmarks, time, idealFrame, width = 420, h
       } else {
         updateLines((skeletonGroup.userData as { geo: THREE.BufferGeometry }).geo, at)
       }
+
 
       const ideal = idealRef.current
       if (ideal) {

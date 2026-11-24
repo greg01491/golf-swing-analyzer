@@ -1,4 +1,4 @@
-from golf_sim.config import DEFAULT_CONFIG_PATH, load_config
+from golf_sim.config import DEFAULT_CONFIG_PATH, load_config, shipped_config_path
 
 METRIC_NAMES = {
     "shoulder_turn_deg",
@@ -33,6 +33,17 @@ def test_load_config_default_path():
 
 def test_default_config_path_exists():
     assert DEFAULT_CONFIG_PATH.exists()
+
+
+def test_shipped_config_path_uses_packaged_default_resource(tmp_path, monkeypatch):
+    executable = tmp_path / "resources" / "backend" / "golf-sim-backend.exe"
+    packaged_default = tmp_path / "resources" / "defaults" / "config.yaml"
+    packaged_default.parent.mkdir(parents=True)
+    packaged_default.write_text("metrics: {}\n")
+    monkeypatch.setattr("golf_sim.config.sys.executable", str(executable))
+    monkeypatch.setattr("golf_sim.config.sys.frozen", True, raising=False)
+
+    assert shipped_config_path() == packaged_default
 
 
 def test_all_clubs_resolve_ranges_for_every_metric():

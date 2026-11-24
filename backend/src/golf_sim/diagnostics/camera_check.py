@@ -14,7 +14,11 @@ import time
 from dataclasses import dataclass, field
 from typing import Protocol
 
-from golf_sim.capture.source import apply_camera_controls, resolve_camera_index
+from golf_sim.capture.source import (
+    apply_camera_controls,
+    configure_camera_mode,
+    resolve_camera_index,
+)
 from golf_sim.config import CameraDeviceConfig, SystemRequirementsConfig
 
 _SAMPLE_FRAMES = 15
@@ -42,9 +46,7 @@ def _default_open(index: int, width: int, height: int, fps: float) -> _Capture:
     import cv2
 
     cap = cv2.VideoCapture(index, cv2.CAP_DSHOW)
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
-    cap.set(cv2.CAP_PROP_FPS, fps)
+    configure_camera_mode(cap, width, height, fps)
     return cap
 
 

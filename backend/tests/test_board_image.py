@@ -1,7 +1,10 @@
+import re
+
 import cv2
 import numpy as np
 import pytest
 
+from golf_sim.diagnostics.print_calibration_board import build_rigid_board_pdf
 from golf_sim.pose.board_detect import detect_board_corners
 from golf_sim.pose.board_image import generate_board_png
 
@@ -47,3 +50,21 @@ def test_generates_valid_png_with_detectable_checkerboard():
 def test_rejects_a_board_too_large_for_a4():
     with pytest.raises(ValueError, match="doesn't fit"):
         generate_board_png((40, 70))
+
+
+def test_rigid_board_pdf_uses_measured_square_size_and_marks(tmp_path):
+    output = tmp_path / "rigid-board.pdf"
+    build_rigid_board_pdf(output, panel_size_mm=(432, 667), bleed_mm=0)
+    content = output.read_bytes()
+
+    assert content.startswith(b"%PDF-1.4")
+    assert b"/Count 1" in content
+    media_box = re.search(rb"/MediaBox\s*\[\s*0\s+0\s+([\d.]+)\s+([\d.]+)\s*\]", content)
+    assert media_box is not None
+    assert float(media_box.group(1)) == pytest.approx(432 * 72 / 25.4, abs=0.01)
+    assert float(media_box.group(2)) == pytest.approx(667 * 72 / 25.4, abs=0.01)
+    assert b"/FontFile2" in content
+    assert b"Helvetica" not in content
+
+    with pytest.raises(ValueError, match="square size must be positive"):
+        build_rigid_board_pdf(tmp_path / "invalid.pdf", square_mm=0)

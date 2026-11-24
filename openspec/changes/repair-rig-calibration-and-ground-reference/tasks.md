@@ -46,9 +46,46 @@
 - [x] 7.2 Perform desktop/mobile browser checks for candidate failure, incompatible settings, legacy bundles, successful reference capture and missing-ground readiness; verify controls, reasons and active-bundle identity remain readable and capture/video review is not falsely advertised as metric certification.
 - [x] 7.3 Document the rig protocol before collecting a new dedicated acceptance capture: fixed camera settings, measured baseline/lengths, independent board level/target orientation, optical sync evidence, known rotations and uncertainty bounds; verify this data is withheld from fitting, model selection and threshold tuning.
 - [ ] 7.4 Run the independent hardware protocol and document per-camera held-out coverage/errors, scale/reference repeatability, event alignment and defensible shoulder/hip angle error bounds; verify all predeclared tolerances pass or leave acceptance explicitly blocked with the failed evidence named.
+
+The 2026-10-23 six-fit/four-held-out shared-board diagnostic supports a consistent
+relative-pose candidate (4.05/4.25 px held-out p95 in the two directions). The active
+transform scores 101.82/115.23 px p95 on the same points, even after allowing the
+baseline-compatible board-order symmetry. The user confirms the rig moved after the
+active calibration and has remained stationary since approximately 2026-10-20. The
+failed body-keypoint capture and rejection were also on October 20, but the saved report
+does not include its estimated pose for direct comparison. Optical synchronization,
+ground/target reference, independent physical-length checks and anatomical error bounds
+remain unverified. On 2026-10-26 an OpenCV detector flags-binding bug was fixed with
+regression tests; all 301 backend tests passed. Re-extracting the original split with the
+corrected detector gives fitted baseline 3.1351 m and held-out p95 4.03/4.91 px (112
+points each direction, all under 15 px); the September active pose still fails at about
+102/115 px. The user reports the floor is level and 35 mm below the hitting mat. However,
+the ground solver still fails: best consistent ordering has p95 0.99/1.49 px but max
+1.76/2.75 px, and reconstructed edge error reaches 7.99% (limit 5%). High-accuracy
+corners do not remove the camera-2/edge failure. No floor-to-mat offset or ground
+reference was accepted, no threshold changed, and no calibration was activated. The
+saved lens refits pass held-out tests (camera1 p95 1.39 px; camera2 p95 0.68 px), but
+camera-2 planar PnP on the new board is worse with the refit, so no lens replacement is
+supported. See
+`docs/calibration-investigation-checklist.md` for reports. A corrected-corner fixed-
+intrinsics stereo refit also passes the 15 px holdouts (p95 4.27/4.68 px) but still
+fails the strict 2 px ground gate; it remains diagnostic-only. A 256-combination grid
+symmetry sweep finds no strict ground pass; the best has 0.90-degree normal repeatability
+but 2.32 px max reprojection and 7.85% edge error. Corner order is not the blocker.
+The 2026-10-26 11:49 box-mounted capture adds a relative-geometry holdout (p95 3.86/2.43
+px, all sampled corners under 15 px), but the checkerboard is upright, not on the floor.
+The user says this is as good as possible and is done with more captures; do not request
+another paper-board capture or activate a calibration. Ground reference and task 7.4
+remain open. See
+`docs/calibration-investigation-checklist.md` for reports and resume constraints.
 - [x] 7.5 Update setup/calibration guidance and the original project spec/plan/tasks, record migration/rollback behavior, and reconcile the companion metric-accuracy validation record only with actually observed evidence; verify neither change's physical gate is closed merely because software tests or a diagnostic ordinary-swing refit pass.
 
 Task 7.4 requires a new independent physical rig capture following
 `docs/calibration-validation.md`. No personal calibration was activated and no new
 hardware acceptance footage was collected during implementation. Do not archive this
 change or close the companion metric-accuracy gate until that evidence passes.
+
+As of 2026-10-26, the user is done taking captures with the tiled paper board. Do not
+request more captures or run the wizard on those sessions. Keep task 7.4 open and the
+active calibration unchanged. Resume physical validation only if a rigid, flat target
+becomes available; otherwise limit follow-up to offline analysis or unrelated work.

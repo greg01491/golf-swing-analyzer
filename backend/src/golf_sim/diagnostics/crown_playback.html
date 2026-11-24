@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Crown Tracking Playback</title>
+  <style>
+    :root { color-scheme:dark; --bg:#11161b; --surface:#1b232b; --line:#35424a; --text:#e2e8eb; --muted:#9ba8af; --accent:#39cf87; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:var(--text); font:14px Bahnschrift,"Segoe UI",sans-serif; letter-spacing:0; }
+    main { max-width:1360px; margin:auto; padding:18px; }
+    header,.toolbar,.transport,nav { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+    header { justify-content:space-between; border-bottom:1px solid var(--line); padding-bottom:12px; }
+    h1 { margin:0; font-size:20px; }
+    a { color:var(--accent); text-underline-offset:3px; }
+    label { display:flex; align-items:center; gap:6px; color:var(--muted); }
+    button,select,input { font:inherit; color:var(--text); background:var(--surface); border:1px solid var(--line); border-radius:4px; padding:8px; }
+    button { cursor:pointer; }
+    button:disabled { cursor:default; opacity:.45; }
+    button:focus-visible,select:focus-visible,input:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+    .toolbar,.transport { padding:12px 0; }
+    #case { min-width:240px; max-width:100%; }
+    #frame { width:92px; }
+    .icon { width:38px; height:36px; padding:0; }
+    .stage { height:66vh; min-height:260px; background:#080b0e; border-block:1px solid var(--line); }
+    video { display:block; width:100%; height:100%; object-fit:contain; }
+    #scrub { flex:1 1 220px; min-width:0; padding:0; accent-color:var(--accent); }
+    #clock { font-variant-numeric:tabular-nums; min-width:130px; }
+    #status { min-height:22px; margin:6px 0; overflow-wrap:anywhere; }
+    #status.unsupported { color:#f0b85b; }
+    #error { color:#ff9898; overflow-wrap:anywhere; }
+    .muted { color:var(--muted); font-size:12px; }
+    .legend { display:flex; gap:16px; flex-wrap:wrap; align-items:center; }
+    .swatch { display:inline-block; width:10px; height:10px; margin-right:5px; border-radius:50%; }
+    .detector { background:#ffa500; } .candidate { background:#00dc00; }
+    @media(max-width:600px) { main { padding:12px; } h1 { font-size:18px; } .toolbar>label:first-child { width:100%; } #case { min-width:0; flex:1; } .stage { height:55vh; } #scrub { flex-basis:100%; } }
+  </style>
+</head>
+<body>
+<main>
+  <header><h1>Crown Tracking Playback</h1><nav><a href="/?mode=check">Accuracy checks</a><a href="/">Starting points</a></nav><span class="muted">Diagnostic only; not used for metrics</span></header>
+  <div class="toolbar">
+    <label>View <select id="case" aria-label="Comparison view"></select></label>
+    <label>Speed <select id="speed" aria-label="Playback speed"><option value="1">Normal (1x)</option><option value="0.5">Slow (0.5x)</option><option value="0.25">Slow (0.25x)</option></select></label>
+    <label><input id="loop" type="checkbox">Loop</label>
+    <span id="coverage" class="muted"></span>
+  </div>
+  <div class="stage"><video id="player" controls playsinline muted preload="metadata" aria-label="Crown tracking comparison video"></video></div>
+  <div class="transport">
+    <button id="previous" class="icon" title="Previous frame" aria-label="Previous frame" disabled>|&lt;</button>
+    <label>Frame <input id="frame" type="number" min="0" step="1" value="0" disabled></label>
+    <button id="next" class="icon" title="Next frame" aria-label="Next frame" disabled>&gt;|</button>
+    <input id="scrub" type="range" min="0" max="359" step="1" value="0" aria-label="Native video frame" disabled>
+    <span id="clock" class="muted">frame 0 / 0.000s</span>
+  </div>
+  <div class="legend muted"><span><span class="swatch detector"></span>Detector</span><span><span class="swatch candidate"></span>Image-tracked candidate</span></div>
+  <p id="status" role="status">Loading comparison videos...</p><p id="error" role="alert"></p>
+</main>
+<script>
+const el = (id) => document.getElementById(id)
+const player = el('player')
+let cases = [], active = null, frame = 0, ready = false, generation = 0
+function error(message) { el('error').textContent = message }
+function update(mediaTime) {
+  if (!active) return
+  frame = Math.max(0, Math.min(active.frame_count - 1, Math.round(mediaTime * active.fps)))
+  el('frame').value = frame; el('scrub').value = frame
+  el('clock').textContent = `frame ${frame} / ${mediaTime.toFixed(3)}s`
+  const state = active.frame_statuses[frame] ?? 'unavailable'
+  const supported = state === 'image_consistent'
+  el('status').textContent = supported ? 'Image-supported candidate; anatomical accuracy remains unverified.' : state === 'operator_seed_recorded' ? 'Operator seed frame; no image-tracked point yet.' : `Track unavailable: ${state.replaceAll('_',' ')}.`
+  el('status').classList.toggle('unsupported', !supported)
+  el('previous').disabled = !ready || frame <= 0
+  el('next').disabled = !ready || frame >= active.frame_count - 1
+}
+function applyRate() { player.playbackRate = Number(el('speed').value) }
+async function select(caseId) {
+  const previous = active, target = cases.find((item) => item.case_id === caseId)
+  const sameClip = previous?.case_id.split('-camera_')[0] === target.case_id.split('-camera_')[0]
+  const time = sameClip ? player.currentTime : 0
+  const resume = !player.paused
+  player.pause(); ready = false; active = target; error(''); el('case').value = caseId
+  for (const id of ['frame','scrub','previous','next']) el(id).disabled = true
+  if (active.locked || !active.video_url) { player.removeAttribute('src'); player.load(); error('Independent accuracy checks are required before this comparison can be viewed.'); return }
+  el('frame').max = active.frame_count - 1; el('scrub').max = active.frame_count - 1
+  el('coverage').textContent = typeof active.image_supported_fraction === 'number' ? `${(100 * active.image_supported_fraction).toFixed(1)}% image support` : ''
+  el('status').textContent = 'Loading comparison video...'
+  const request = ++generation
+  player.onloadedmetadata = async () => {
+    if (request !== generation) return
+    ready = true; applyRate(); player.loop = el('loop').checked
+    el('frame').disabled = false; el('scrub').disabled = false
+    player.currentTime = Math.min(time, Math.max(0, player.duration - 1 / active.fps)); update(player.currentTime)
+    if (resume) { try { await player.play() } catch (failure) { error(failure.message) } }
+  }
+  player.src = active.video_url; player.load()
+}
+function seek(value) {
+  if (!ready || !Number.isFinite(value)) return
+  const index = Math.max(0, Math.min(active.frame_count - 1, Math.trunc(value)))
+  player.pause(); player.currentTime = Math.min((index + 0.25) / active.fps, player.duration - 0.001); update(index / active.fps)
+}
+if ('requestVideoFrameCallback' in player) {
+  const presented = (_now, metadata) => { if (ready) update(metadata.mediaTime); player.requestVideoFrameCallback(presented) }
+  player.requestVideoFrameCallback(presented)
+} else player.addEventListener('timeupdate', () => update(player.currentTime))
+player.addEventListener('seeked', () => update(player.currentTime))
+player.addEventListener('ended', () => update(player.currentTime))
+player.addEventListener('error', () => error('Comparison video could not be loaded or decoded.'))
+el('case').addEventListener('change', () => select(el('case').value))
+el('speed').addEventListener('change', applyRate)
+el('loop').addEventListener('change', () => { player.loop = el('loop').checked })
+el('frame').addEventListener('change', () => seek(Number(el('frame').value)))
+el('scrub').addEventListener('input', () => seek(Number(el('scrub').value)))
+el('previous').addEventListener('click', () => seek(frame - 1))
+el('next').addEventListener('click', () => seek(frame + 1))
+fetch('/api/playback').then(async response => { if (!response.ok) throw new Error(await response.text()); return response.json() }).then(data => {
+  cases = data.cases
+  for (const item of cases) { const option = document.createElement('option'); option.value = item.case_id; option.textContent = item.label + (item.locked ? ' (checks required)' : ''); option.disabled = item.locked; el('case').append(option) }
+  const initial = cases.find((item) => item.case_id === 'swing-camera_1' && !item.locked) ?? cases.find((item) => !item.locked)
+  if (!initial) throw new Error('No comparison videos are available for review.')
+  select(initial.case_id)
+}).catch(failure => error(failure.message))
+</script>
+</body>
+</html>
